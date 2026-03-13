@@ -1,0 +1,7 @@
+##gff-version 3
+##sequence-region U00096.3 1 4641652
+U00096.3	RefSeq	gene	190	255	.	+	.	ID=gene-b0001;Dbxref=EcoGene:EG11277,GeneID:944742;Name=thrL;gbkey=Gene;gene=thrL;gene_biotype=protein_coding;locus_tag=b0001
+U00096.3	RefSeq	CDS	190	255	.	+	0	ID=cds-AAC73112.1;Parent=rna-NM_001358952.1;Dbxref=UniProtKB/Swiss-Prot:P0AD86,Pfam:PF01030;Name=AAC73112.1;gbkey=CDS;gene=thrL;product=thr operon leader peptide;protein_id=AAC73112.1
+U00096.3	RefSeq	gene	337	2799	.	+	.	ID=gene-b0002;Dbxref=EcoGene:EG10998,GeneID:945803,UniProtKB/Swiss-Prot:P00561;Name=thrA;gbkey=Gene;gene=thrA;gene_biotype=protein_coding;locus_tag=b0002
+U00096.3	RefSeq	CDS	337	2799	.	+	0	ID=cds-AAC73113.1;Parent=rna-NM_001358953.1;Dbxref=UniProtKB/Swiss-Prot:P00561,Pfam:PF01842,KEGG:eco:b0002;Name=AAC73113.1;gbkey=CDS;gene=thrA;product=fused aspartate kinase/homoserine dehydrogenase;protein_id=AAC73113.1
+U00096.3	RefSeq	gene	2801	3733	.	+	.	ID=gene-b0003;Dbxref=EcoGene:EG10999,GeneID:947498;Name=thrB;gbkey=Gene;gene=thrB;gene_biotype=protein_coding;locus_tag=b0003
