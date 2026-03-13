@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg
+pip-wheel-metadata/
+share/python-wheels/
+*.pyo
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data files (large, gitignored)
+data/gtf/
+data/biomart/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Neo4j
+neo4j/
+
+# Misc
+*.tmp
+*.bak
