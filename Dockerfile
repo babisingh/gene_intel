@@ -2,7 +2,7 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY frontend/ ./
 # VITE_API_BASE_URL is intentionally empty so the frontend uses relative URLs
 # (same origin as the backend in production).
