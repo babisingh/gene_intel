@@ -12,7 +12,7 @@ import sys
 import os
 
 # Add backend/ to PYTHONPATH
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.db.neo4j_client import get_driver, verify_connectivity, close_driver
 from app.db.schema import init_schema, CONSTRAINTS, INDEXES
