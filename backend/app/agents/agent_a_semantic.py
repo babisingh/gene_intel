@@ -84,6 +84,8 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
         messages=[{"role": "user", "content": user_message}],
     )
 
+    if not response.content:
+        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
     cypher = response.content[0].text.strip()
 
     # Validate before returning

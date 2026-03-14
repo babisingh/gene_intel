@@ -41,6 +41,7 @@ def get_gene(
         chromosome=str(gene_data.get("chromosome", "")),
         start=gene_data.get("start", 0),
         end=gene_data.get("end", 0),
+        strand=gene_data.get("strand"),
         domains=detail["domains"],
     )
 

@@ -1,5 +1,5 @@
 /**
- * PersonaSelector — Three-mode selector for investor/student/researcher.
+ * PersonaSelector — Three-mode selector for business/student/researcher.
  */
 
 import type { Persona } from '../types'
@@ -7,9 +7,9 @@ import { useSearchStore } from '../store/searchStore'
 
 const PERSONAS: { id: Persona; label: string; description: string }[] = [
   {
-    id: 'investor',
-    label: 'Investor',
-    description: 'Plain English, market framing',
+    id: 'business',
+    label: 'Business',
+    description: 'Plain English, commercial relevance',
   },
   {
     id: 'student',
