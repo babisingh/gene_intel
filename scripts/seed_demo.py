@@ -20,7 +20,7 @@ import sys
 import os
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 
 from app.db.neo4j_client import get_driver, verify_connectivity, close_driver
 from app.db.schema import init_schema
