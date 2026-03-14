@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Pydantic request/response models for the Gene-Intel API.
 Used by FastAPI for automatic validation and OpenAPI schema generation.
