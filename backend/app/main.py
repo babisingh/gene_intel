@@ -6,10 +6,14 @@ Shutdown: close Neo4j driver
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.db.neo4j_client import get_driver, close_driver, verify_connectivity
@@ -80,6 +84,23 @@ def create_app() -> FastAPI:
             llm="ok" if settings.anthropic_api_key else "error",
             species_loaded=species_count,
         )
+
+    # ── Serve built React frontend (production / Railway) ─────────────────────
+    # Registered last so all /api/* routes take priority over the SPA catch-all.
+    # The Dockerfile copies the Vite build output to /app/frontend/dist.
+    # In development (no dist folder) the Vite dev server handles the UI.
+    _frontend_dist = Path(__file__).parent.parent.parent.parent / "frontend" / "dist"
+    if _frontend_dist.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(_frontend_dist / "assets")),
+            name="frontend-assets",
+        )
+
+        # SPA catch-all: return index.html for any path so React Router works
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str):  # noqa: ARG001
+            return FileResponse(str(_frontend_dist / "index.html"))
 
     return app
 
