@@ -9,7 +9,7 @@ from typing import List, Optional
 
 class SearchRequest(BaseModel):
     query: str                           # Natural language query
-    persona: str = "student"             # "investor" | "student" | "researcher"
+    persona: str = "student"             # "business" | "student" | "researcher"
     species_filter: Optional[List[str]] = None  # List of taxon_ids to restrict to
     limit: int = 300
 
@@ -26,6 +26,7 @@ class GeneNode(BaseModel):
     chromosome: str
     start: int
     end: int
+    strand: Optional[str] = None         # "+" | "-" | None
     domains: List[str]                   # List of domain_id strings
 
 

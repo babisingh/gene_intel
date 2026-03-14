@@ -17,7 +17,7 @@ export const SPECIES_COLORS: Record<string, string> = {
   '10090':  '#E8834C',  // Mouse — orange
   '7955':   '#4CE8A0',  // Zebrafish — green
   '9031':   '#E8D44C',  // Chicken — yellow
-  '175781': '#C44CE8',  // Octopus — purple
+  '8364':   '#C44CE8',  // Xenopus tropicalis — purple
   '9598':   '#4CBDE8',  // Chimp — light blue
   '7227':   '#E84C4C',  // Drosophila — red
   '6239':   '#E8B44C',  // C. elegans — amber

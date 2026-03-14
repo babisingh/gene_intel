@@ -37,7 +37,7 @@ BIO_DICTIONARY = {
         "description": "Transcripts with high exon count, indicating alternative splicing",
         "cypher_where": "t.exon_count > 8",
         "cypher_match": "MATCH (g)-[:HAS_TRANSCRIPT]->(t:Transcript)",
-        "example_nl": "Which octopus genes show complex splicing?",
+        "example_nl": "Which Xenopus tropicalis genes show complex splicing?",
     },
     "minimal transcripts": {
         "description": "Single-exon genes — often retrotransposed pseudogenes or simple ORFs",

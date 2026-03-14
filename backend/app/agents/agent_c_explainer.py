@@ -6,9 +6,9 @@ and neighbourhood context) and produce a human-readable explanation tailored to 
 user's selected persona.
 
 Persona register:
-  - investor:   Plain English, market framing, drug-target relevance highlighted
-  - student:    Educational tone, biological concepts defined inline
-  - researcher: Full metadata, technical terminology, Cypher query shown, export hint
+  - business:    Plain English, market framing, drug-target relevance highlighted
+  - student:     Educational tone, biological concepts defined inline
+  - researcher:  Full metadata, technical terminology, Cypher query shown, export hint
 
 Connected to:
   - graph_workflow.py: called after Agent A fetches results from Neo4j
@@ -22,25 +22,35 @@ from app.config import settings
 client = Anthropic(api_key=settings.anthropic_api_key)
 
 PERSONA_INSTRUCTIONS = {
-    "investor": """
-        You are explaining genomic findings to a biotech investor.
-        - Use plain English — no jargon without immediate definition
-        - Highlight commercial relevance: drug targets, conserved pathways, disease associations
-        - Format: 2–3 short paragraphs. Lead with the most interesting finding.
-        - End with: "Why this matters for drug discovery: ..."
+    "business": """
+        You are explaining genomic findings to a biotech business professional or investor.
+        - Use plain English only — define any scientific term immediately when used
+        - Highlight commercial and strategic relevance: drug targets, conserved pathways,
+          disease associations, competitive moats, and unmet medical needs
+        - Quantify where possible: number of genes found, how many species share the finding,
+          known drug approvals in this pathway
+        - Avoid raw identifiers (gene IDs, taxon IDs) — always use common names
+        - Format: 2–3 short paragraphs. Open with the headline finding.
+          Close with a "Business significance:" paragraph.
     """,
     "student": """
         You are explaining genomic findings to a graduate biology student.
-        - Use correct scientific terms but define them on first use in parentheses
-        - Connect findings to concepts they would know: gene expression, protein domains, evolution
-        - Format: structured explanation with "What we found:", "Why it's interesting:", "How it works:"
+        - Use correct scientific terminology, defining each new term in parentheses on first use
+        - Connect findings to core concepts the student would know: gene expression, protein
+          domains, evolutionary conservation, gene regulation, splicing
+        - Use analogies where helpful to clarify complex ideas
+        - Format four clearly labelled sections:
+          "What we found:" | "Why it's interesting:" | "How it works:" | "What it means:"
     """,
     "researcher": """
-        You are explaining genomic findings to an expert bioinformatician.
+        You are explaining genomic findings to an expert bioinformatician or molecular biologist.
         - Use full technical terminology — no simplification needed
-        - Include: gene IDs, taxon IDs, domain accessions, exact property values
-        - Note any caveats about data quality (transcript support level, annotation completeness)
-        - Format: structured report with headings. Include the original Cypher query used.
+        - Include exact gene IDs, taxon IDs, domain accessions (Pfam/InterPro/GO/KEGG),
+          chromosomal coordinates, and strand orientation where available
+        - Note data quality caveats: transcript support level, annotation completeness,
+          BioMart domain coverage gaps
+        - Format with markdown headings: ## Summary | ## Key Findings | ## Technical Details | ## Caveats
+        - When the Cypher query is provided, briefly explain its logic after presenting results
     """,
 }
 
@@ -56,7 +66,7 @@ def explain_results(
       nl_query:    Original user question in natural language
       cypher_query: The Cypher Agent A generated (shown to researcher persona)
       results:     List of Neo4j result dicts from the search
-      persona:     "investor" | "student" | "researcher"
+      persona:     "business" | "student" | "researcher"
 
     Returns: Plain-text explanation string
     """
@@ -88,6 +98,10 @@ def explain_results(
         system=system,
         messages=[{"role": "user", "content": user_message}],
     )
+
+    if not response.content:
+        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
+
     return response.content[0].text
 
 
@@ -125,6 +139,10 @@ def explain_single_gene(gene_data: dict, persona: str = "student") -> str:
         system=system,
         messages=[{"role": "user", "content": user_message}],
     )
+
+    if not response.content:
+        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
+
     return response.content[0].text
 
 

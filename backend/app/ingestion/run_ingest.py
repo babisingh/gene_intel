@@ -67,11 +67,11 @@ SPECIES_REGISTRY = {
         "gtf_filename": "gallus_gallus.gtf.gz",
         "biomart_filename": "biomart_9031.tsv",
     },
-    "175781": {
-        "name": "Octopus bimaculoides", "common_name": "Octopus", "kingdom": "Animalia",
-        "assembly": "ASM119306v1", "gtf_source": "ensembl",
-        "gtf_filename": "octopus_bimaculoides.gtf.gz",
-        "biomart_filename": "biomart_175781.tsv",
+    "8364": {
+        "name": "Xenopus tropicalis", "common_name": "Western clawed frog", "kingdom": "Animalia",
+        "assembly": "UCB_Xtro_10.0", "gtf_source": "ensembl",
+        "gtf_filename": "xenopus_tropicalis.gtf.gz",
+        "biomart_filename": "biomart_8364.tsv",
     },
     "9598": {
         "name": "Pan troglodytes", "common_name": "Chimpanzee", "kingdom": "Animalia",

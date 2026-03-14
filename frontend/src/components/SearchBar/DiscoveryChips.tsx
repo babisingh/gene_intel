@@ -69,8 +69,8 @@ export const DISCOVERY_CHIPS: DiscoveryChip[] = [
     category: 'structure',
   },
   {
-    label: 'Octopus splicing complexity',
-    query: 'Find octopus genes with complex splicing near neurotransmitter domains',
+    label: 'Xenopus splicing complexity',
+    query: 'Find Xenopus tropicalis genes with complex splicing near neurotransmitter domains',
     category: 'structure',
   },
 ]

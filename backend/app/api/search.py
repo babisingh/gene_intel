@@ -29,6 +29,7 @@ def _to_gene_node(raw: dict) -> GeneNode:
         chromosome=str(raw.get("chromosome", "")),
         start=raw.get("start", 0),
         end=raw.get("end", 0),
+        strand=raw.get("strand"),
         domains=raw.get("domains", []),
     )
 
