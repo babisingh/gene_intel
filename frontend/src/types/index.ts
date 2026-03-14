@@ -12,6 +12,7 @@ export interface GeneNode {
   chromosome: string
   start: number
   end: number
+  strand: '+' | '-' | null
   domains: string[]
 }
 

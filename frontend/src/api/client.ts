@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Typed fetch wrapper for the Gene-Intel API.
  * All API calls go through this module for consistent error handling and base URL.

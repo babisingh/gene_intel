@@ -53,7 +53,7 @@ export function GraphView({ nodes, edges }: GraphViewProps) {
       })
     })
 
-    edges.forEach((edge, idx) => {
+    edges.forEach((edge) => {
       if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
         const edgeStyle = EDGE_STYLES[edge.type] ?? EDGE_STYLES.CO_LOCATED_WITH
         try {
