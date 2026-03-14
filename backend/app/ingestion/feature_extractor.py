@@ -47,7 +47,7 @@ def extract_features(
         f_type = rec["feature_type"]
 
         if f_type == "gene":
-            gene_id = attrs.get("gene_id", "")
+            gene_id = attrs.get("gene_id", "").strip()
             if not gene_id:
                 continue
             length = rec["end"] - rec["start"]
@@ -70,8 +70,8 @@ def extract_features(
             }
 
         elif f_type == "transcript":
-            transcript_id = attrs.get("transcript_id", "")
-            gene_id = attrs.get("gene_id", "")
+            transcript_id = attrs.get("transcript_id", "").strip()
+            gene_id = attrs.get("gene_id", "").strip()
             if not transcript_id or not gene_id:
                 continue
             support_raw = attrs.get("transcript_support_level", None)
@@ -89,8 +89,8 @@ def extract_features(
 
         elif f_type in ("CDS", "exon", "UTR", "five_prime_utr", "three_prime_utr",
                         "start_codon", "stop_codon"):
-            transcript_id = attrs.get("transcript_id", "")
-            gene_id = attrs.get("gene_id", "")
+            transcript_id = attrs.get("transcript_id", "").strip()
+            gene_id = attrs.get("gene_id", "").strip()
             if not transcript_id:
                 continue
 

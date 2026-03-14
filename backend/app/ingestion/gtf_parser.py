@@ -13,6 +13,7 @@ Connected to:
 """
 
 import gzip
+import re
 from typing import Generator, Dict
 
 
@@ -33,7 +34,9 @@ def parse_gtf_streaming(filepath: str, dialect: str) -> Generator[Dict, None, No
         for line in f:
             if line.startswith("#") or line.strip() == "":
                 continue
-            parts = line.rstrip("\n").split("\t")
+            # maxsplit=8 so that col9 captures the full attribute string even
+            # if it contains tab characters (non-standard but seen in practice).
+            parts = line.rstrip("\n").split("\t", 8)
             if len(parts) < 9:
                 continue
 
@@ -65,21 +68,40 @@ def parse_ensembl_col9(col9: str) -> Dict:
     """
     Parses Ensembl GTF attribute string.
     Example: gene_id "ENSG00000139618"; gene_name "BRCA2"; db_xref "Pfam:PF00082";
+
+    Handles both space-separated (standard) and tab-separated (non-standard) key-value pairs.
+    Falls back to a regex scan for gene_id and transcript_id if the split-based parse
+    misses them (e.g. malformed whitespace in the attribute string).
     """
     attrs: Dict = {}
     for field in col9.split(";"):
         field = field.strip()
         if not field:
             continue
-        parts = field.split(" ", 1)
+        # Try splitting on first whitespace (space or tab)
+        parts = re.split(r'\s+', field, maxsplit=1)
         if len(parts) == 2:
-            key = parts[0]
-            val = parts[1].strip('"')
+            key = parts[0].strip()
+            val = parts[1].strip().strip('"')
+            if not key:
+                continue
             # db_xref can appear multiple times — collect as list
             if key == "db_xref":
                 attrs.setdefault("db_xref", []).append(val)
             else:
                 attrs[key] = val
+
+    # Safety fallback: if gene_id or transcript_id were not captured by the loop
+    # above (e.g. unusual whitespace), extract them via regex directly.
+    if "gene_id" not in attrs:
+        m = re.search(r'gene_id\s+"([^"]+)"', col9)
+        if m:
+            attrs["gene_id"] = m.group(1)
+    if "transcript_id" not in attrs:
+        m = re.search(r'transcript_id\s+"([^"]+)"', col9)
+        if m:
+            attrs["transcript_id"] = m.group(1)
+
     return attrs
 
 
