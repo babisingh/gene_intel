@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
     # Registered last so all /api/* routes take priority over the SPA catch-all.
     # The Dockerfile copies the Vite build output to /app/frontend/dist.
     # In development (no dist folder) the Vite dev server handles the UI.
-    _frontend_dist = Path(__file__).parent.parent.parent.parent / "frontend" / "dist"
+    _frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if _frontend_dist.is_dir():
         app.mount(
             "/assets",
