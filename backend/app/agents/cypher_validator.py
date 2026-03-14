@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Cypher Validator — Whitelist-based safety gate.
 
