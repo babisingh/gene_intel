@@ -21,14 +21,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# BioMart column headers we recognise
+# BioMart column headers we recognise.
+# The exact header string varies by Ensembl release and mirror, so we list
+# all known aliases. The tuple is (source_label, internal_key).
 DOMAIN_COLUMNS = {
-    "Pfam domain":                ("Pfam",      "pfam_id"),
-    "Pfam domain ID":             ("Pfam",      "pfam_id"),
-    "PANTHER ID":                 ("PANTHER",   "panther_id"),
-    "InterPro accession":         ("InterPro",  "interpro_id"),
-    "GO term accession":          ("GO",        "go_id"),
-    "KEGG Pathway and Enzyme ID": ("KEGG",      "kegg_id"),
+    # Pfam — header varies by release ("Pfam domain" older, "Pfam ID" newer)
+    "Pfam domain":                ("Pfam",     "pfam_id"),
+    "Pfam domain ID":             ("Pfam",     "pfam_id"),
+    "Pfam ID":                    ("Pfam",     "pfam_id"),
+    # PANTHER
+    "PANTHER ID":                 ("PANTHER",  "panther_id"),
+    # InterPro — same header-variation issue
+    "InterPro accession":         ("InterPro", "interpro_id"),
+    "InterPro ID":                ("InterPro", "interpro_id"),
+    "Interpro ID":                ("InterPro", "interpro_id"),   # lower-case 'r'
+    # GO
+    "GO term accession":          ("GO",       "go_id"),
+    # KEGG
+    "KEGG Pathway and Enzyme ID": ("KEGG",     "kegg_id"),
 }
 
 GENE_ID_COLUMNS = {
@@ -78,7 +88,12 @@ def parse_biomart_tsv(filepath: str) -> List[Dict]:
                     val = val.strip()
                     if not val:
                         continue
-                    domain_id = f"{source}:{val}"
+                    # GO values already carry the "GO:" prefix (e.g. "GO:0016531").
+                    # All other sources (Pfam, InterPro …) provide bare IDs.
+                    if source == "GO" and val.upper().startswith("GO:"):
+                        domain_id = val
+                    else:
+                        domain_id = f"{source}:{val}"
                     results.append({
                         "gene_id":     gene_id,
                         "domain_id":   domain_id,
