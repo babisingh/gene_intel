@@ -1,0 +1,37 @@
+# Exclude large genomic data files from the Docker image.
+# GTF and BioMart files are only needed for ingestion (run locally or in CI),
+# NOT inside the Railway container. All graph data lives in Neo4j Aura.
+data/
+data/gtf/
+data/biomart/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+frontend/node_modules/
+frontend/.cache/
+
+# Local env — never bake credentials into the image
+.env
+backend/.env
+*.env
+
+# Git
+.git/
+.gitignore
+
+# Dev/test artefacts
+*.log
+*.tmp
+coverage/
+.coverage
+htmlcov/

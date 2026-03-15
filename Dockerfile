@@ -1,3 +1,21 @@
+# ── Gene-Intel — Production Docker image ──────────────────────────────────────
+#
+# Architecture:
+#   ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
+#   │  Local PC   │────▶│  Neo4j Aura      │◀────│  Railway (this    │
+#   │  (ingest)   │     │  (graph DB cloud)│     │   Dockerfile)     │
+#   └─────────────┘     └──────────────────┘     └───────────────────┘
+#
+# This image contains ONLY the web application (FastAPI + React).
+# GTF and BioMart data files are EXCLUDED via .dockerignore — they live on
+# the local machine used for ingestion, not in Railway.
+#
+# Required Railway environment variables:
+#   NEO4J_URI         neo4j+s://<id>.databases.neo4j.io
+#   NEO4J_USER        neo4j
+#   NEO4J_PASSWORD    <password>
+#   ANTHROPIC_API_KEY sk-ant-api03-…
+#
 # ── Stage 1: Build React frontend ─────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
