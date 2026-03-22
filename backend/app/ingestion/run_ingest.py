@@ -4,7 +4,15 @@ CLI entrypoint for the Gene-Intel ingestion pipeline.
 Usage:
     python -m app.ingestion.run_ingest --species 9606
     python -m app.ingestion.run_ingest --species 511145   # E. coli (GFF3 auto-detected)
-    python -m app.ingestion.run_ingest --all              # All 15 species
+    python -m app.ingestion.run_ingest --all              # All 17 species
+
+    # Domain ingestion
+    python -m app.ingestion.run_ingest --species 9606 --step domains
+    python -m app.ingestion.run_ingest --species 9606 --domain-source uniprot
+    python -m app.ingestion.run_ingest --species 175781 --domain-source interproscan
+
+    # Coverage report
+    python -m app.ingestion.run_ingest domains --report
 
 Species metadata is defined in SPECIES_REGISTRY below.
 """
@@ -133,7 +141,168 @@ SPECIES_REGISTRY = {
         "gtf_filename": "ecoli_k12.gff3.gz",
         "biomart_filename": None,  # E. coli uses GFF3 Dbxref
     },
+    # ── Species 16-17 (added 2025) ────────────────────────────────────────────
+    "9913": {
+        "name": "Bos taurus", "common_name": "Cow", "kingdom": "Animalia",
+        "assembly": "ARS-UCD1.3", "gtf_source": "ensembl",
+        "ensembl_name": "bos_taurus",
+        "gtf_filename": "bos_taurus.gtf.gz",
+        "biomart_filename": "biomart_9913.tsv",
+        "uniprot_proteome": "UP000009136",
+        "annotation_note": "Well-annotated agricultural genome, ~22,000 protein-coding genes",
+    },
+    "8665": {
+        "name": "Ophiophagus hannah", "common_name": "King cobra", "kingdom": "Reptilia",
+        "assembly": "OphHan1.0", "gtf_source": "ensembl",
+        "ensembl_name": "ophiophagus_hannah",
+        "gtf_filename": "ophiophagus_hannah.gtf.gz",
+        "biomart_filename": "biomart_8665.tsv",
+        "uniprot_proteome": "UP000308820",
+        "annotation_note": "Venom-related gene clusters, complex alternative splicing patterns",
+    },
 }
+
+
+# Species with good Swiss-Prot (reviewed) coverage — use reviewed_only=True
+_WELL_ANNOTATED = {9606, 10090, 7955, 9031, 9598, 7227, 6239, 3702, 4530, 4932, 9913}
+# Species needing TrEMBL fallback or InterProScan
+_LOW_COVERAGE = {175781, 3218, 3055, 162425, 511145, 8665}
+
+
+def _auto_select_domain_route(taxon_id: int) -> str:
+    """Return the recommended domain source for a given taxon."""
+    if taxon_id in _WELL_ANNOTATED:
+        return "both"          # UniProt reviewed + InterPro enrichment
+    return "both_unreviewed"   # UniProt unreviewed + InterPro + possibly InterProScan
+
+
+def run_domain_ingest(
+    taxon_id_str: str,
+    driver,
+    domain_source: str = "both",
+    skip_enrichment: bool = False,
+    ftp_file: str | None = None,
+) -> None:
+    """Run domain ingestion for one species using the requested route(s)."""
+    from app.ingestion.domain_ingest_uniprot import run_uniprot_domain_ingest
+    from app.ingestion.domain_ingest_interpro import enrich_existing_domains
+    from app.ingestion.domain_ingest_ftp import run_ftp_domain_ingest
+    from app.ingestion.domain_ingest_interproscan import run_interproscan_ingest
+
+    taxon_id = int(taxon_id_str)
+    species_meta = SPECIES_REGISTRY.get(taxon_id_str, {})
+    common_name = species_meta.get("common_name", taxon_id_str)
+
+    logger.info("=== Domain ingest for %s (taxon %s) ===", common_name, taxon_id_str)
+
+    if domain_source == "ftp":
+        if not ftp_file:
+            logger.error("--ftp-file required when --domain-source ftp")
+            return
+        run_ftp_domain_ingest(ftp_file, driver, [taxon_id])
+        return
+
+    if domain_source in ("uniprot", "both", "both_unreviewed"):
+        run_uniprot_domain_ingest(taxon_id, driver)
+
+    if domain_source in ("interpro",):
+        # InterPro enrichment only (assumes UniProt already ran)
+        enrich_existing_domains(taxon_id, driver)
+
+    if domain_source in ("both", "both_unreviewed") and not skip_enrichment:
+        enrich_existing_domains(taxon_id, driver)
+
+    if domain_source == "interproscan" or (
+        taxon_id in _LOW_COVERAGE and domain_source == "both_unreviewed"
+    ):
+        gtf_path = os.path.join(
+            settings.gtf_data_dir,
+            species_meta.get("gtf_filename", f"{taxon_id_str}.gtf.gz"),
+        )
+        fasta_path = os.path.join("data/genomes", f"{taxon_id}.fa.gz")
+        run_interproscan_ingest(taxon_id, driver, gtf_path, fasta_path)
+
+
+def print_coverage_report(driver) -> None:
+    """Query Neo4j and print a domain coverage report for all loaded species."""
+    query = """
+    MATCH (s:Species)-[:HAS_GENE]->(g:Gene)
+    OPTIONAL MATCH (g)-[:HAS_DOMAIN]->(d:Domain)
+    WITH s.common_name AS species, s.taxon_id AS taxon,
+         count(DISTINCT g) AS total_genes,
+         count(DISTINCT CASE WHEN d IS NOT NULL THEN g END) AS genes_with_domains
+    RETURN species, taxon, total_genes, genes_with_domains
+    ORDER BY total_genes DESC
+    """
+
+    top_domain_query = """
+    MATCH (s:Species {taxon_id: $taxon_id})-[:HAS_GENE]->(g:Gene)-[:HAS_DOMAIN]->(d:Domain)
+    WHERE d.pfam_acc IS NOT NULL
+    RETURN d.pfam_acc AS pfam_acc, d.name AS name, count(d) AS cnt
+    ORDER BY cnt DESC
+    LIMIT 1
+    """
+
+    WARN_THRESHOLD = 30.0
+    ALERT_THRESHOLD = 10.0
+
+    header = (
+        f"  {'Species':<18} | {'Taxon':<8} | {'Genes':>6} | "
+        f"{'With Domains':>12} | {'Coverage':>8} | Top Domain"
+    )
+    separator = "  " + "-" * 18 + "-+-" + "-" * 8 + "-+-" + "-" * 6 + "-+-" + "-" * 12 + "-+-" + "-" * 8 + "-+-" + "-" * 20
+
+    print("\n=== Domain Coverage Report ===")
+    print(header)
+    print(separator)
+
+    try:
+        with driver.session() as session:
+            rows = list(session.run(query))
+
+        for row in rows:
+            species = row["species"] or "Unknown"
+            taxon = row["taxon"] or ""
+            total = row["total_genes"] or 0
+            with_domains = row["genes_with_domains"] or 0
+            coverage = (with_domains / total * 100) if total > 0 else 0.0
+
+            # Get top domain
+            top_domain = "—"
+            try:
+                with driver.session() as session:
+                    top = session.run(top_domain_query, taxon_id=taxon).single()
+                    if top:
+                        top_domain = f"{top['pfam_acc']} ({top['name'][:15] if top['name'] else '?'})"
+            except Exception:
+                pass
+
+            # Colour coding via prefix
+            prefix = "  "
+            suffix = ""
+            if coverage < ALERT_THRESHOLD:
+                prefix = "⚠ "
+                suffix = " [ALERT]"
+            elif coverage < WARN_THRESHOLD:
+                prefix = "! "
+                suffix = " [WARN]"
+
+            print(
+                f"{prefix}{'%-18s' % species} | {'%-8s' % taxon} | {total:>6} | "
+                f"{with_domains:>12} | {coverage:>7.1f}% | {top_domain}{suffix}"
+            )
+
+            if coverage < ALERT_THRESHOLD:
+                print(
+                    f"    → Consider running InterProScan for taxon {taxon}:\n"
+                    f"      python -m app.ingestion.run_ingest --species {taxon} "
+                    f"--domain-source interproscan"
+                )
+    except Exception as exc:
+        logger.error("Coverage report error: %s", exc)
+        print("  (Could not query Neo4j — is it running?)")
+
+    print("")
 
 
 def ingest_species(taxon_id: str, driver) -> None:
@@ -214,22 +383,98 @@ def ingest_species(taxon_id: str, driver) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gene-Intel ingestion pipeline")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--species", help="Taxon ID to ingest (e.g. 9606)")
-    group.add_argument("--all", action="store_true", help="Ingest all 15 species")
+    parser = argparse.ArgumentParser(
+        description="Gene-Intel ingestion pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # GTF ingestion
+  python -m app.ingestion.run_ingest --species 9606
+  python -m app.ingestion.run_ingest --all
+
+  # Domain ingestion
+  python -m app.ingestion.run_ingest --species 9606 --step domains
+  python -m app.ingestion.run_ingest --species 9606 --domain-source uniprot
+  python -m app.ingestion.run_ingest --species 175781 --domain-source interproscan
+
+  # FTP bulk ingestion (requires download first)
+  python -m app.ingestion.run_ingest --species 9606 --domain-source ftp \\
+      --ftp-file data/interpro_ftp/protein2ipr.dat.gz
+
+  # Coverage report
+  python -m app.ingestion.run_ingest domains --report
+        """,
+    )
+
+    # Positional command (optional — for 'domains --report')
+    parser.add_argument(
+        "command", nargs="?", default=None,
+        help="Sub-command: 'domains' (use with --report)",
+    )
+
+    species_group = parser.add_mutually_exclusive_group()
+    species_group.add_argument("--species", help="Taxon ID to ingest (e.g. 9606)")
+    species_group.add_argument("--all", action="store_true", help="Ingest all 17 species")
+
+    parser.add_argument(
+        "--step", choices=["gtf", "domains", "all"], default="all",
+        help="Which ingestion step to run (default: all)",
+    )
+    parser.add_argument(
+        "--domain-source",
+        choices=["uniprot", "interpro", "interproscan", "ftp", "both"],
+        default=None,
+        help="Domain data source (default: auto-selected per species)",
+    )
+    parser.add_argument(
+        "--skip-domain-enrichment", action="store_true",
+        help="Skip InterPro enrichment step (faster re-runs)",
+    )
+    parser.add_argument(
+        "--ftp-file", default=None,
+        help="Path to protein2ipr.dat.gz for FTP ingestion",
+    )
+    parser.add_argument(
+        "--report", action="store_true",
+        help="Print domain coverage report (use with 'domains' command)",
+    )
+
     args = parser.parse_args()
+
+    # Handle: python -m ... domains --report
+    if args.command == "domains" and args.report:
+        driver = get_driver()
+        print_coverage_report(driver)
+        driver.close()
+        return
+
+    # For GTF/domain ingestion, need at least --species or --all
+    if not args.all and not args.species:
+        parser.print_help()
+        sys.exit(0)
 
     driver = get_driver()
 
     logger.info("Initialising Neo4j schema…")
     init_schema(driver)
 
-    if args.all:
-        for taxon_id in SPECIES_REGISTRY:
+    taxon_ids = list(SPECIES_REGISTRY.keys()) if args.all else [args.species]
+
+    for taxon_id in taxon_ids:
+        if args.step in ("gtf", "all"):
             ingest_species(taxon_id, driver)
-    else:
-        ingest_species(args.species, driver)
+
+        if args.step in ("domains", "all"):
+            source = args.domain_source
+            if source is None:
+                source = _auto_select_domain_route(int(taxon_id))
+            run_domain_ingest(
+                taxon_id,
+                driver,
+                domain_source=source,
+                skip_enrichment=args.skip_domain_enrichment,
+                ftp_file=args.ftp_file,
+            )
 
     driver.close()
 
