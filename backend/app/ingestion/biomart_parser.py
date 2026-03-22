@@ -56,6 +56,20 @@ def parse_biomart_tsv(filepath: str) -> List[Dict]:
         logger.warning("BioMart TSV not found: %s", filepath)
         return []
 
+    # Guard: detect BioMart server error responses stored as the file content
+    try:
+        with open(filepath, encoding="utf-8") as _f:
+            first_line = _f.readline()
+        if "Query ERROR" in first_line or "BioMart::Exception" in first_line or "Could not connect" in first_line:
+            logger.warning(
+                "BioMart file %s contains a server error (BioMart API down). "
+                "Skipping — use --step domains --domain-source uniprot instead.",
+                filepath,
+            )
+            return []
+    except OSError:
+        pass
+
     results = []
     with open(filepath, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
