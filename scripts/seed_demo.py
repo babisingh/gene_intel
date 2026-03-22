@@ -32,12 +32,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEMO_SPECIES = ["9606", "7955"]  # Human + Zebrafish
+DEMO_SPECIES = ["9606", "7955", "9913"]  # Human + Zebrafish + Cow
 
 
 def main():
     logger.info("Gene-Intel Demo Seed")
-    logger.info("Species: Human (9606) + Zebrafish (7955)")
+    logger.info("Species: Human (9606) + Zebrafish (7955) + Cow (9913)")
     logger.info("")
 
     if not verify_connectivity():

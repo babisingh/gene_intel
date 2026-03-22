@@ -1,6 +1,6 @@
 # Gene-Intel Discovery Engine v2.0
 
-Semantic genomic graph search across **15 species** — ask questions in plain English, get interactive gene networks.
+Semantic genomic graph search across **17 species** — ask questions in plain English, get interactive gene networks.
 
 ## Core Concept
 
@@ -60,7 +60,7 @@ npm run dev
 # Open http://localhost:5173
 ```
 
-## The 15 Species
+## The 17 Species
 
 | # | Common Name | Scientific Name | Taxon ID | Kingdom |
 |---|------------|-----------------|----------|---------|
@@ -79,6 +79,32 @@ npm run dev
 | 13 | Black mould | Aspergillus niger | 162425 | Fungi |
 | 14 | Yeast | S. cerevisiae | 4932 | Fungi |
 | 15 | E. coli K-12 | Escherichia coli | 511145 | Bacteria |
+| 16 | Cow | Bos taurus | 9913 | Animalia |
+| 17 | King cobra | Ophiophagus hannah | 8665 | Reptilia |
+
+## Domain Data
+
+Gene-Intel uses a 4-route fallback strategy to source protein domain annotations, replacing the deprecated BioMart API:
+
+| Route | Source | Coverage | Use case |
+|-------|--------|----------|----------|
+| 1 | UniProt REST API | Swiss-Prot reviewed proteins | Model organisms (default) |
+| 2 | InterPro REST API | Pfam + CDD + SMART | Enrichment, e-values |
+| 3 | EMBL-EBI FTP bulk | All UniProtKB matches | Production offline ingestion |
+| 4 | InterProScan | Computed from sequence | Non-model organisms |
+
+Quick command reference:
+
+```bash
+# Run domain ingestion after GTF load (default: UniProt + InterPro)
+python -m app.ingestion.run_ingest --species 9606 --step domains
+
+# Check domain coverage
+python -m app.ingestion.run_ingest domains --report
+
+# Run InterProScan for a non-model organism (requires genome FASTA)
+python -m app.ingestion.run_ingest --species 175781 --domain-source interproscan
+```
 
 ## Architecture
 
@@ -135,7 +161,7 @@ python -m app.ingestion.run_ingest --species 9606
 # Ingest E. coli (GFF3 auto-detected)
 python -m app.ingestion.run_ingest --species 511145
 
-# Ingest all 15 species
+# Ingest all 17 species
 python -m app.ingestion.run_ingest --all
 
 # Run backend

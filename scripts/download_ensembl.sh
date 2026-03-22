@@ -97,6 +97,18 @@ download \
     "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.gff.gz" \
     "${GTF_DIR}/ecoli_k12.gff3.gz"
 
+# ── Species 16-17 (added 2025) ────────────────────────────────────────────────
+
+# Cow (Bos taurus) — Ensembl main (ARS-UCD1.3 assembly)
+download \
+    "https://ftp.ensembl.org/pub/release-111/gtf/bos_taurus/Bos_taurus.ARS-UCD1.3.111.gtf.gz" \
+    "${GTF_DIR}/bos_taurus.gtf.gz"
+
+# King cobra (Ophiophagus hannah) — Ensembl main (OphHan1.0 assembly)
+download \
+    "https://ftp.ensembl.org/pub/release-111/gtf/ophiophagus_hannah/Ophiophagus_hannah.OphHan1.0.111.gtf.gz" \
+    "${GTF_DIR}/ophiophagus_hannah.gtf.gz"
+
 echo ""
 echo "=== Download complete. Files in: $GTF_DIR ==="
 echo "Next step: python scripts/seed_demo.py"

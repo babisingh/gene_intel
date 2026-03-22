@@ -62,8 +62,15 @@ def validate_cypher(cypher: str) -> dict:
         return {"valid": False, "error": "Query must contain a LIMIT clause (max 300)"}
 
     # 4. Check node labels used in the query are in the whitelist
-    used_labels = set(re.findall(r':([A-Z][a-zA-Z]+)', cypher))
-    unknown_labels = used_labels - ALLOWED_NODE_LABELS
+    # Strip string literals first to avoid false positives (e.g. 'Pfam:PF00069')
+    cypher_no_strings = re.sub(r"'[^']*'", "''", cypher)
+    cypher_no_strings = re.sub(r'"[^"]*"', '""', cypher_no_strings)
+    # Extract node labels: patterns like (:Label) or (alias:Label) — inside round brackets
+    # Exclude relationship types which appear inside square brackets [...]
+    cypher_no_rel_types = re.sub(r'\[[^\]]*\]', '[]', cypher_no_strings)
+    used_labels = set(re.findall(r':([A-Z][A-Za-z]+)', cypher_no_rel_types))
+    all_allowed = ALLOWED_NODE_LABELS | ALLOWED_RELATIONSHIP_TYPES
+    unknown_labels = used_labels - all_allowed
     if unknown_labels:
         return {"valid": False, "error": f"Unknown node label(s): {unknown_labels}"}
 
