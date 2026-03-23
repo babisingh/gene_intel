@@ -238,7 +238,7 @@ def load_domains_to_neo4j(
     """
     query = """
     UNWIND $batch AS row
-    MATCH (g:Gene {gene_name: row.gene_name, species_taxon: row.species_taxon})
+    MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
     MERGE (d:Domain {domain_id: row.domain_id})
     ON CREATE SET d += row.props
     ON MATCH  SET d += row.props
@@ -298,7 +298,7 @@ def load_domains_to_neo4j_accurate(
     """
     query = """
     UNWIND $batch AS row
-    OPTIONAL MATCH (g:Gene {gene_name: row.gene_name, species_taxon: row.species_taxon})
+    OPTIONAL MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
     WITH g, row
     WHERE g IS NOT NULL
     MERGE (d:Domain {domain_id: row.domain_id})
@@ -309,7 +309,7 @@ def load_domains_to_neo4j_accurate(
 
     check_query = """
     UNWIND $batch AS row
-    OPTIONAL MATCH (g:Gene {gene_name: row.gene_name, species_taxon: row.species_taxon})
+    OPTIONAL MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
     RETURN row.gene_name AS gene_name, g IS NOT NULL AS found
     """
 
