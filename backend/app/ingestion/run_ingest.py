@@ -330,11 +330,21 @@ def ingest_species(taxon_id: str, driver) -> None:
     edges = build_neighborhood_edges(genes)
     logger.info("Built %d CO_LOCATED_WITH edges", len(edges))
 
-    # 4. Domain annotations
+    # 4. Domain annotations (BioMart if available; silently skip if file has server error)
     gene_domains: list = []
+    biomart_used = False
     if species_meta["biomart_filename"]:
         biomart_path = os.path.join(settings.biomart_data_dir, species_meta["biomart_filename"])
         gene_domains = parse_biomart_tsv(biomart_path)
+        if gene_domains:
+            biomart_used = True
+        elif os.path.exists(biomart_path):
+            logger.warning(
+                "BioMart file empty or invalid for taxon %s. "
+                "Run domain ingestion separately: "
+                "python -m app.ingestion.run_ingest --species %s --step domains",
+                taxon_id, taxon_id,
+            )
     elif dialect == "ncbi_gff3":
         # Extract domains from GFF3 Dbxref for E. coli
         records2 = parse_gtf_streaming(gtf_path, dialect)
