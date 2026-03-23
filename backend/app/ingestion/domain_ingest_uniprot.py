@@ -41,6 +41,12 @@ _REVIEWED_ONLY_TAXONS = {
     3702, 4530, 4932, 9913, 8665,
 }
 
+# Some species use a strain-level taxon in UniProt/InterPro that differs from
+# the NCBI species-level ID used by Ensembl GTF files.
+_TAXON_REMAP = {
+    4932: 559292,   # S. cerevisiae species → S288C reference strain
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fetch
@@ -64,10 +70,11 @@ def fetch_uniprot_domains(
             uniprot_acc, gene_name, pfam_acc, domain_name,
             start_aa, end_aa, e_value (always None from this route)
     """
+    api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
     if reviewed_only:
-        query = f"(taxonomy_id:{taxon_id} AND reviewed:true)"
+        query = f"(taxonomy_id:{api_taxon} AND reviewed:true)"
     else:
-        query = f"(taxonomy_id:{taxon_id})"
+        query = f"(taxonomy_id:{api_taxon})"
 
     params: dict[str, Any] = {
         "query": query,
