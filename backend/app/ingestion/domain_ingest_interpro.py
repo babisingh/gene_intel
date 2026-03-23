@@ -207,10 +207,14 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
     """
     logger.info("Starting InterPro domain enrichment for taxon %d", taxon_id)
 
-    # Find only the Pfam accessions present in Domain nodes that need enrichment
+    # Find Pfam accessions present in Domain nodes for this taxon.
+    # e_value IS NULL is intentionally omitted here: Neo4j warns when a property
+    # key has never been written to the database (Domain nodes with e_value=None
+    # are stored without the property, so the key is absent on first run).
+    # The guard against overwriting existing e_values lives in the SET query below.
     pfam_query = """
     MATCH (d:Domain)<-[:HAS_DOMAIN]-(:Gene {species_taxon: $taxon_id})
-    WHERE d.e_value IS NULL AND d.pfam_acc IS NOT NULL
+    WHERE d.pfam_acc IS NOT NULL
     RETURN DISTINCT d.pfam_acc AS pfam_acc
     """
     with driver.session() as session:
