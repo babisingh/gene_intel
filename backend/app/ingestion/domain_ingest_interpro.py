@@ -248,7 +248,7 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
         for i in range(0, len(lst), n):
             yield lst[i:i + n]
 
-    for chunk in _chunks(domains, batch_size):
+    for chunk_idx, chunk in enumerate(_chunks(domains, batch_size)):
         batch_rows = [
             {
                 "pfam_acc":  d["pfam_acc"],
@@ -258,13 +258,26 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
             }
             for d in chunk
         ]
-        try:
-            with driver.session() as session:
-                result = session.run(query, batch=batch_rows, taxon_id=str(taxon_id))
-                summary = result.consume()
-                enriched += summary.counters.properties_set
-        except Exception as exc:
-            logger.error("Enrichment batch error: %s", exc)
+        for attempt in range(4):           # up to 4 attempts (3 retries)
+            try:
+                with driver.session() as session:
+                    result = session.run(query, batch=batch_rows, taxon_id=str(taxon_id))
+                    summary = result.consume()
+                    enriched += summary.counters.properties_set
+                break                       # success — move to next chunk
+            except Exception as exc:
+                wait = 2 ** attempt         # 1 s, 2 s, 4 s, then give up
+                if attempt < 3:
+                    logger.warning(
+                        "Enrichment batch %d error (attempt %d/4, retry in %ds): %s",
+                        chunk_idx, attempt + 1, wait, exc,
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(
+                        "Enrichment batch %d failed after 4 attempts: %s",
+                        chunk_idx, exc,
+                    )
 
     logger.info("Taxon %d enrichment: %d properties set", taxon_id, enriched)
     return {"enriched": enriched, "not_found": not_found}
