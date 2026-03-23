@@ -63,7 +63,7 @@ def _run_checks() -> dict:
     sys.path.insert(0, spec_dir)
 
     from scripts.check_ingestion import check_files, check_schema, check_neo4j_data
-    from app.db.neo4j_client import get_driver
+    from app.db.neo4j_client import get_driver, close_driver
 
     driver = get_driver()
     report = {
@@ -71,7 +71,7 @@ def _run_checks() -> dict:
         "schema": check_schema(driver),
         "data": check_neo4j_data(driver),
     }
-    driver.close()
+    close_driver()   # resets the _driver global so get_driver() creates a fresh connection below
     return report
 
 
