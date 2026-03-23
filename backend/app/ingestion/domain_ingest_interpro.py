@@ -31,6 +31,11 @@ _BASE_URL = "https://www.ebi.ac.uk/interpro/api"
 _RATE_LIMIT_DELAY = float(os.getenv("INTERPRO_RATE_LIMIT_DELAY", "0.5"))
 _CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "gene-intel@example.com")
 
+# Same remap as domain_ingest_uniprot — strain-level IDs required by the API
+_TAXON_REMAP = {
+    4932: 559292,   # S. cerevisiae species → S288C reference strain
+}
+
 _HEADERS = {
     "Accept": "application/json",
     "User-Agent": f"Gene-Intel/2.0 (research; contact: {_CONTACT_EMAIL})",
@@ -127,7 +132,8 @@ def fetch_interpro_domains_for_taxon(
 
     Returns a list of domain dicts (one per domain-per-protein fragment).
     """
-    url = f"{_BASE_URL}/entry/pfam/protein/uniprot/taxonomy/uniprot/{taxon_id}"
+    api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
+    url = f"{_BASE_URL}/entry/pfam/protein/uniprot/taxonomy/uniprot/{api_taxon}"
     params: dict[str, Any] = {
         "page_size": page_size,
         "extra_fields": "sequence_length",
