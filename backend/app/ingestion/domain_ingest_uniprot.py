@@ -161,7 +161,11 @@ def fetch_uniprot_domains(
                 if xref.get("database") == "Ensembl":
                     for prop in xref.get("properties", []):
                         if prop.get("key") == "GeneId":
-                            ensembl_gene_id = prop["value"]
+                            raw_gid = prop["value"]
+                            # UniProt returns versioned IDs (ENSG00000012048.23);
+                            # Ensembl GTF stores bare IDs (ENSG00000012048). Strip
+                            # the version suffix so the Neo4j lookup succeeds.
+                            ensembl_gene_id = raw_gid.split(".")[0]
                             break
                 if ensembl_gene_id:
                     break
@@ -266,7 +270,7 @@ def load_domains_to_neo4j(
     OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
       WHERE row.ensembl_gene_id IS NOT NULL
     OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
-      WHERE row.ensembl_gene_id IS NULL
+      WHERE g1 IS NULL
     WITH coalesce(g1, g2) AS g, row
     WHERE g IS NOT NULL
     MERGE (d:Domain {domain_id: row.domain_id})
@@ -337,7 +341,7 @@ def load_domains_to_neo4j_accurate(
     OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
       WHERE row.ensembl_gene_id IS NOT NULL
     OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
-      WHERE row.ensembl_gene_id IS NULL
+      WHERE g1 IS NULL
     WITH coalesce(g1, g2) AS g, row
     WHERE g IS NOT NULL
     MERGE (d:Domain {domain_id: row.domain_id})
@@ -352,7 +356,7 @@ def load_domains_to_neo4j_accurate(
     OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
       WHERE row.ensembl_gene_id IS NOT NULL
     OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
-      WHERE row.ensembl_gene_id IS NULL
+      WHERE g1 IS NULL
     WITH coalesce(g1, g2) AS g, row
     RETURN row.ensembl_gene_id AS ensembl_gene_id,
            row.gene_name       AS gene_name,
