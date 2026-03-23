@@ -72,13 +72,13 @@ def fetch_uniprot_domains(
     """
     api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
     if reviewed_only:
-        query = f"(taxonomy_id:{api_taxon} AND reviewed:true)"
+        query = f"(taxonomy_id:{api_taxon} AND reviewed:true AND ft_domain:*)"
     else:
-        query = f"(taxonomy_id:{api_taxon})"
+        query = f"(taxonomy_id:{api_taxon} AND ft_domain:*)"
 
     params: dict[str, Any] = {
         "query": query,
-        "fields": "accession,gene_names,ft_domain",
+        "fields": "accession,gene_names,ft_domain,xref_pfam",
         "format": "json",
         "size": _PAGE_SIZE,
     }
@@ -142,11 +142,20 @@ def fetch_uniprot_domains(
                 primary = gene_names_section[0].get("geneName", {})
                 gene_name = primary.get("value", acc)
 
-            features = protein.get("features", [])
-            for feat in features:
-                if feat.get("type") != "Domain":
-                    continue
+            # Pfam accessions are at the protein level in uniProtKBCrossReferences,
+            # not inside individual feature entries.
+            pfam_list = [
+                x["id"]
+                for x in protein.get("uniProtKBCrossReferences", [])
+                if x.get("database") == "Pfam"
+            ]
 
+            domain_features = [
+                f for f in protein.get("features", [])
+                if f.get("type") == "Domain"
+            ]
+
+            for idx, feat in enumerate(domain_features):
                 domain_name = feat.get("description", "")
                 location = feat.get("location", {})
                 start_aa = location.get("start", {}).get("value")
@@ -155,17 +164,20 @@ def fetch_uniprot_domains(
                 if start_aa is None or end_aa is None:
                     continue
 
-                # Extract Pfam accession from cross-references
-                pfam_acc = None
-                for dbref in feat.get("dbReferences", []):
-                    if dbref.get("database") == "Pfam":
-                        pfam_acc = dbref.get("id")
-                        break
+                # Pair Pfam accessions with domain features by index when counts
+                # match exactly; fall back to first Pfam when only one is listed.
+                if len(pfam_list) == len(domain_features):
+                    pfam_acc = pfam_list[idx]
+                elif len(pfam_list) == 1:
+                    pfam_acc = pfam_list[0]
+                else:
+                    pfam_acc = None
 
-                if pfam_acc is None:
-                    continue
-
-                domain_id = f"{gene_name}__{pfam_acc}__{start_aa}"
+                domain_id = (
+                    f"{gene_name}__{pfam_acc}__{start_aa}"
+                    if pfam_acc
+                    else f"{gene_name}__{domain_name.replace(' ', '_')}__{start_aa}"
+                )
 
                 domains.append({
                     "uniprot_acc":  acc,

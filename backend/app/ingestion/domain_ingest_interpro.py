@@ -136,7 +136,6 @@ def fetch_interpro_domains_for_taxon(
     url = f"{_BASE_URL}/entry/pfam/protein/uniprot/taxonomy/uniprot/{api_taxon}"
     params: dict[str, Any] = {
         "page_size": page_size,
-        "extra_fields": "sequence_length",
     }
 
     all_domains: list[dict[str, Any]] = []
