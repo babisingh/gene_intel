@@ -1,0 +1,8 @@
+  HTTP/1.1 200 OK
+  Server: Apache
+  Content-Type: text/plain; charset=utf-8
+  Content-Security-Policy: frame-ancestors 'self'
+  Date: Thu, 19 Mar 2026 17:20:00 GMT
+  Transfer-Encoding: chunked
+  Connection: Keep-Alive
+  X-Frame-Options: SAMEORIGIN
