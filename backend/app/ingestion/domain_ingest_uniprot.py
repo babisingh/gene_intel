@@ -25,6 +25,7 @@ Connected to:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -131,7 +132,11 @@ def fetch_uniprot_domains(
 
         data = resp.json()
         protein_list = data.get("results", [])
-        logger.info("Page %d: %d proteins", page_num, len(protein_list))
+        if page_num == 1:
+            total_results = resp.headers.get("X-Total-Results", "?")
+            logger.info("Page 1: %d proteins (X-Total-Results: %s)", len(protein_list), total_results)
+        else:
+            logger.info("Page %d: %d proteins", page_num, len(protein_list))
 
         for protein in protein_list:
             acc = protein.get("primaryAccession", "")
@@ -219,16 +224,19 @@ def fetch_uniprot_domains(
 
 
 def _parse_next_link(link_header: str) -> str | None:
-    """Parse the Link header and return the 'next' URL or None."""
+    """Parse the Link header and return the 'next' URL or None.
+
+    Uses a regex instead of split(',') because the cursor URL itself contains
+    commas (e.g. fields=accession,gene_names,ft_domain,...) which the UniProt
+    API server leaves unencoded in the Link header value.  Splitting on ',' then
+    breaks the URL into fragments that no longer match the <url>; rel="next"
+    pattern.  The regex anchors on angle-brackets, which are never valid inside
+    a URL, so commas inside the URL are harmless.
+    """
     if not link_header:
         return None
-    for part in link_header.split(","):
-        part = part.strip()
-        if 'rel="next"' in part:
-            url_part = part.split(";")[0].strip()
-            if url_part.startswith("<") and url_part.endswith(">"):
-                return url_part[1:-1]
-    return None
+    match = re.search(r'<([^>]+)>\s*;\s*rel=["\']next["\']', link_header)
+    return match.group(1) if match else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
