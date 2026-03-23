@@ -372,6 +372,89 @@ def load_domains_to_neo4j_accurate(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Backfill
+# ─────────────────────────────────────────────────────────────────────────────
+
+def backfill_uniprot_acc(driver, batch_size: int = 500) -> dict[str, int]:
+    """
+    Backfill the uniprot_acc property on Domain nodes that were loaded before
+    the property was added to the schema.
+
+    Strategy:
+    - Find distinct species_taxon values from Domain nodes where uniprot_acc IS NULL.
+    - For each taxon, re-fetch from the UniProt API (same logic as the normal ingest).
+    - MATCH existing Domain nodes by domain_id and SET uniprot_acc.
+
+    No Gene traversal or relationship work is performed — this is a pure property patch.
+
+    Returns:
+        dict with keys: patched (nodes updated), not_found (domain_ids not in graph),
+        errors (batch failures).
+    """
+    # Find taxons that have Domain nodes still missing uniprot_acc
+    taxon_query = """
+    MATCH (d:Domain)
+    WHERE d.uniprot_acc IS NULL AND d.species_taxon IS NOT NULL
+    RETURN DISTINCT toInteger(d.species_taxon) AS taxon_id
+    """
+    with driver.session() as session:
+        taxon_ids = [r["taxon_id"] for r in session.run(taxon_query)]
+
+    if not taxon_ids:
+        logger.info("backfill_uniprot_acc: all Domain nodes already have uniprot_acc")
+        return {"patched": 0, "not_found": 0, "errors": 0}
+
+    logger.info("backfill_uniprot_acc: %d taxon(s) need patching: %s", len(taxon_ids), taxon_ids)
+
+    patch_query = """
+    UNWIND $batch AS row
+    OPTIONAL MATCH (d:Domain {domain_id: row.domain_id})
+    WITH d, row WHERE d IS NOT NULL
+    SET d.uniprot_acc = row.uniprot_acc
+    RETURN count(d) AS updated
+    """
+
+    patched = 0
+    not_found = 0
+    errors = 0
+
+    def _chunks(lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    for taxon_id in taxon_ids:
+        reviewed_only = taxon_id in _REVIEWED_ONLY_TAXONS
+        domains = fetch_uniprot_domains(taxon_id, reviewed_only=reviewed_only)
+
+        if len(domains) < 100 and reviewed_only:
+            logger.warning(
+                "backfill_uniprot_acc: low Swiss-Prot coverage for taxon %d, falling back to TrEMBL",
+                taxon_id,
+            )
+            domains = fetch_uniprot_domains(taxon_id, reviewed_only=False)
+
+        # Only include domains that actually have a uniprot_acc to set
+        rows = [{"domain_id": d["domain_id"], "uniprot_acc": d["uniprot_acc"]} for d in domains]
+
+        for chunk in _chunks(rows, batch_size):
+            try:
+                with driver.session() as session:
+                    result = session.run(patch_query, batch=chunk)
+                    updated = result.single()["updated"]
+                    patched += updated
+                    not_found += len(chunk) - updated
+            except Exception as exc:
+                logger.error("backfill_uniprot_acc batch error for taxon %d: %s", taxon_id, exc)
+                errors += len(chunk)
+
+    logger.info(
+        "backfill_uniprot_acc complete: patched=%d, not_found=%d, errors=%d",
+        patched, not_found, errors,
+    )
+    return {"patched": patched, "not_found": not_found, "errors": errors}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
 
