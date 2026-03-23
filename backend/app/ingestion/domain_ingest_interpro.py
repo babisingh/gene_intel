@@ -52,22 +52,37 @@ _CACHE_TTL_HOURS = 1
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_with_rate_limit(url: str, params: dict | None = None) -> requests.Response:
-    """GET with enforced rate limit and retry on 429/503."""
-    time.sleep(_RATE_LIMIT_DELAY)
+    """GET with enforced rate limit and retry on 429 / 503 / timeout."""
+    _RETRY_DELAYS = {429: 5, 503: 30}  # status → wait seconds
+    last_exc: Exception | None = None
 
-    resp = requests.get(url, params=params, headers=_HEADERS, timeout=30)
+    for attempt in range(4):  # up to 4 attempts
+        time.sleep(_RATE_LIMIT_DELAY)
+        try:
+            resp = requests.get(url, params=params, headers=_HEADERS, timeout=60)
+        except requests.exceptions.Timeout as exc:
+            wait = 2 ** attempt
+            logger.warning(
+                "InterPro read timeout (attempt %d/4, retry in %ds): %s",
+                attempt + 1, wait, exc,
+            )
+            time.sleep(wait)
+            last_exc = exc
+            continue
 
-    if resp.status_code == 429:
-        logger.warning("InterPro rate-limited (429). Waiting 5s…")
-        time.sleep(5)
-        resp = requests.get(url, params=params, headers=_HEADERS, timeout=30)
+        if resp.status_code not in _RETRY_DELAYS:
+            return resp
 
-    if resp.status_code == 503:
-        logger.warning("InterPro 503. Waiting 30s…")
-        time.sleep(30)
-        resp = requests.get(url, params=params, headers=_HEADERS, timeout=30)
+        wait = _RETRY_DELAYS[resp.status_code]
+        logger.warning(
+            "InterPro HTTP %d (attempt %d/4, retry in %ds)…",
+            resp.status_code, attempt + 1, wait,
+        )
+        time.sleep(wait)
 
-    return resp
+    if last_exc:
+        raise last_exc
+    return resp  # return last non-retryable response (e.g. final 429)
 
 
 def _parse_domain_from_result(result: dict) -> list[dict[str, Any]]:
