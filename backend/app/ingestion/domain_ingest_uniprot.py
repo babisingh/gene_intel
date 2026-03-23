@@ -189,7 +189,7 @@ def fetch_uniprot_domains(
                     "end_aa":       int(end_aa),
                     "e_value":      None,
                     "source_db":    "uniprot",
-                    "species_taxon": taxon_id,
+                    "species_taxon": str(taxon_id),  # Gene nodes store this as str
                 })
 
         # Pagination: follow Link: <url>; rel="next"

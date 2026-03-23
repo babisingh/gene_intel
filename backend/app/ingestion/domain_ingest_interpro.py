@@ -71,45 +71,40 @@ def _get_with_rate_limit(url: str, params: dict | None = None) -> requests.Respo
 
 
 def _parse_domain_from_result(result: dict) -> list[dict[str, Any]]:
-    """Extract domain dicts from a single InterPro API result entry."""
+    """
+    Extract domain dicts from a single result of the protein-centric endpoint:
+      /protein/uniprot/entry/pfam/{pfam_acc}/taxonomy/uniprot/{taxon_id}
+
+    Response shape per result:
+      metadata.accession              → UniProt protein accession
+      entries[].accession             → Pfam accession (PFxxxxx)
+      entries[].entry_protein_locations[].score     → e-value
+      entries[].entry_protein_locations[].fragments[].start/end → coordinates
+    """
     domains = []
     try:
         protein_acc = result["metadata"]["accession"]
-        entries = result.get("entries", [])
-        for entry in entries:
-            meta = entry.get("metadata", {})
-            pfam_acc = meta.get("accession", "")
-            if not pfam_acc.startswith("PF"):
+        for entry in result.get("entries", []):
+            pfam_acc = entry.get("accession", "")
+            if not pfam_acc.upper().startswith("PF"):
                 continue
-            name = meta.get("name", {})
-            domain_name = name.get("name", "") if isinstance(name, dict) else str(name)
 
-            mapping = entry.get("protein_structure_mapping", {})
-            protein_mapping = mapping.get(protein_acc, [])
-            if not protein_mapping:
-                # Try iterating all keys
-                for val in mapping.values():
-                    if isinstance(val, list):
-                        protein_mapping = val
-                        break
-
-            for fragment in protein_mapping:
-                start = fragment.get("start")
-                end = fragment.get("end")
-                score = fragment.get("score")  # e-value
-
-                if start is None or end is None:
-                    continue
-
-                domains.append({
-                    "uniprot_acc": protein_acc,
-                    "pfam_acc":    pfam_acc,
-                    "domain_name": domain_name,
-                    "start_aa":    int(start),
-                    "end_aa":      int(end),
-                    "e_value":     score,
-                    "source_db":   "pfam_interpro",
-                })
+            for location in entry.get("entry_protein_locations", []):
+                score = location.get("score")  # e-value at location level
+                for fragment in location.get("fragments", []):
+                    start = fragment.get("start")
+                    end = fragment.get("end")
+                    if start is None or end is None:
+                        continue
+                    domains.append({
+                        "uniprot_acc": protein_acc,
+                        "pfam_acc":    pfam_acc.upper(),
+                        "domain_name": "",
+                        "start_aa":    int(start),
+                        "end_aa":      int(end),
+                        "e_value":     score,
+                        "source_db":   "pfam_interpro",
+                    })
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("Skipping malformed InterPro result: %s", exc)
     return domains
@@ -119,53 +114,78 @@ def _parse_domain_from_result(result: dict) -> list[dict[str, Any]]:
 # fetch_interpro_domains_for_taxon
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_interpro_domains_for_taxon(
+def fetch_interpro_domains_for_pfam(
+    pfam_acc: str,
     taxon_id: int,
     page_size: int = 200,
 ) -> list[dict[str, Any]]:
     """
-    Fetch Pfam domain matches for all proteins in a given species from InterPro.
+    Fetch all protein-domain records for one Pfam entry within a taxon.
 
-    Endpoint:
-        /api/entry/pfam/protein/uniprot/taxonomy/uniprot/{taxon_id}
-        ?page_size={page_size}&extra_fields=sequence_length
-
-    Returns a list of domain dicts (one per domain-per-protein fragment).
+    Endpoint (protein-centric, returns inline entries + positions):
+        /protein/uniprot/entry/pfam/{pfam_acc}/taxonomy/uniprot/{api_taxon}
     """
     api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
-    url = f"{_BASE_URL}/entry/pfam/protein/uniprot/taxonomy/uniprot/{api_taxon}"
-    params: dict[str, Any] = {
-        "page_size": page_size,
-    }
+    url = f"{_BASE_URL}/protein/uniprot/entry/pfam/{pfam_acc}/taxonomy/uniprot/{api_taxon}"
+    params: dict[str, Any] = {"page_size": page_size}
 
-    all_domains: list[dict[str, Any]] = []
+    domains: list[dict[str, Any]] = []
     page_num = 0
 
     while url:
         page_num += 1
         resp = _get_with_rate_limit(url, params if page_num == 1 else None)
 
+        if resp.status_code == 404:
+            break  # This Pfam entry has no proteins for this taxon — normal
         if resp.status_code != 200:
-            logger.error(
-                "InterPro HTTP %d for taxon %d page %d",
-                resp.status_code, taxon_id, page_num,
+            logger.warning(
+                "InterPro HTTP %d for %s / taxon %d page %d",
+                resp.status_code, pfam_acc, taxon_id, page_num,
             )
             break
 
         data = resp.json()
-        results = data.get("results", [])
+        for result in data.get("results", []):
+            domains.extend(_parse_domain_from_result(result))
 
-        for result in results:
-            domains = _parse_domain_from_result(result)
-            all_domains.extend(domains)
+        url = data.get("next")
+        params = {}
 
-        next_url = data.get("next")
-        url = next_url
-        params = {}  # params only needed on first request
+    return domains
+
+
+def fetch_interpro_domains_for_taxon(
+    taxon_id: int,
+    pfam_accs: list[str],
+    page_size: int = 200,
+) -> list[dict[str, Any]]:
+    """
+    Fetch Pfam domain matches from InterPro for a list of Pfam accessions.
+
+    Iterates one API call per Pfam accession using the protein-centric endpoint
+    that returns inline entry_protein_locations (positions + e-values).
+
+    Args:
+        taxon_id:   NCBI taxonomy ID.
+        pfam_accs:  Pfam accessions to query (typically taken from existing
+                    Domain nodes in Neo4j so only relevant entries are fetched).
+        page_size:  Results per page.
+
+    Returns:
+        list of domain dicts with pfam_acc, start_aa, end_aa, e_value.
+    """
+    all_domains: list[dict[str, Any]] = []
+    total_pages = 0
+
+    for pfam_acc in pfam_accs:
+        domains = fetch_interpro_domains_for_pfam(pfam_acc, taxon_id, page_size)
+        all_domains.extend(domains)
+        total_pages += 1
 
     logger.info(
-        "InterPro fetch for taxon %d: %d domains from %d pages",
-        taxon_id, len(all_domains), page_num,
+        "InterPro fetch for taxon %d: %d domains across %d Pfam entries",
+        taxon_id, len(all_domains), total_pages,
     )
     return all_domains
 
@@ -179,12 +199,29 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
     Enrich Domain nodes (loaded by UniProt route) with e-values from InterPro.
     Only updates Domain nodes where e_value IS NULL — does not create new nodes.
 
+    Queries Neo4j first to find which Pfam accessions actually need enrichment,
+    then fetches only those entries from InterPro (one API call per Pfam entry).
+
     Returns:
         dict with keys: enriched, not_found
     """
     logger.info("Starting InterPro domain enrichment for taxon %d", taxon_id)
 
-    domains = fetch_interpro_domains_for_taxon(taxon_id)
+    # Find only the Pfam accessions present in Domain nodes that need enrichment
+    pfam_query = """
+    MATCH (d:Domain)<-[:HAS_DOMAIN]-(:Gene {species_taxon: $taxon_id})
+    WHERE d.e_value IS NULL AND d.pfam_acc IS NOT NULL
+    RETURN DISTINCT d.pfam_acc AS pfam_acc
+    """
+    with driver.session() as session:
+        pfam_accs = [r["pfam_acc"] for r in session.run(pfam_query, taxon_id=str(taxon_id))]
+
+    if not pfam_accs:
+        logger.info("No Domain nodes needing e-value enrichment for taxon %d", taxon_id)
+        return {"enriched": 0, "not_found": 0}
+
+    logger.info("Fetching InterPro e-values for %d distinct Pfam entries", len(pfam_accs))
+    domains = fetch_interpro_domains_for_taxon(taxon_id, pfam_accs)
 
     if not domains:
         logger.warning("No InterPro domains found for taxon %d", taxon_id)
@@ -219,7 +256,7 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
         ]
         try:
             with driver.session() as session:
-                result = session.run(query, batch=batch_rows, taxon_id=taxon_id)
+                result = session.run(query, batch=batch_rows, taxon_id=str(taxon_id))
                 summary = result.consume()
                 enriched += summary.counters.properties_set
         except Exception as exc:
