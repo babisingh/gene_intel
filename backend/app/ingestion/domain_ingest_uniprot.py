@@ -259,6 +259,7 @@ def load_domains_to_neo4j(
         for d in chunk:
             props = {
                 "domain_id":    d["domain_id"],
+                "uniprot_acc":  d["uniprot_acc"],
                 "pfam_acc":     d["pfam_acc"],
                 "name":         d["domain_name"],
                 "source_db":    d["source_db"],
@@ -326,6 +327,7 @@ def load_domains_to_neo4j_accurate(
         for d in chunk:
             props = {
                 "domain_id":    d["domain_id"],
+                "uniprot_acc":  d["uniprot_acc"],
                 "pfam_acc":     d["pfam_acc"],
                 "name":         d["domain_name"],
                 "source_db":    d["source_db"],

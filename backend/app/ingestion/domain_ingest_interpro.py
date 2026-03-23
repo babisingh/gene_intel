@@ -246,9 +246,15 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
         logger.warning("No InterPro domains found for taxon %d", taxon_id)
         return {"enriched": 0, "not_found": 0}
 
+    # Match by uniprot_acc (protein) + pfam_acc first.
+    # start_aa is kept as a tiebreaker to handle proteins that carry two copies
+    # of the same Pfam domain (e.g. tandem repeat domains).
+    # Using uniprot_acc avoids coordinate-system mismatches: previously the
+    # match was pfam_acc + start_aa across the whole taxon, which failed when
+    # UniProt and InterPro reported the same domain at slightly different positions.
     query = """
     UNWIND $batch AS row
-    MATCH (d:Domain {pfam_acc: row.pfam_acc, start_aa: row.start_aa})
+    MATCH (d:Domain {uniprot_acc: row.uniprot_acc, pfam_acc: row.pfam_acc, start_aa: row.start_aa})
           <-[:HAS_DOMAIN]-(:Gene {species_taxon: $taxon_id})
     WHERE d.e_value IS NULL
     SET d.e_value = row.e_value, d.source_db = row.source_db
