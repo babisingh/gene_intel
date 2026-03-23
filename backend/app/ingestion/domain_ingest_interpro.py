@@ -272,10 +272,11 @@ def enrich_existing_domains(taxon_id: int, driver) -> dict[str, int]:
     for chunk_idx, chunk in enumerate(_chunks(domains, batch_size)):
         batch_rows = [
             {
-                "pfam_acc":  d["pfam_acc"],
-                "start_aa":  d["start_aa"],
-                "e_value":   d["e_value"],
-                "source_db": d["source_db"],
+                "uniprot_acc": d["uniprot_acc"],
+                "pfam_acc":    d["pfam_acc"],
+                "start_aa":    d["start_aa"],
+                "e_value":     d["e_value"],
+                "source_db":   d["source_db"],
             }
             for d in chunk
         ]
