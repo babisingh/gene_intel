@@ -128,20 +128,45 @@ def check_schema(driver) -> dict:
 
 def check_neo4j_data(driver) -> dict:
     """Check node/relationship counts per species."""
-    query = """
+    # Separate queries to avoid the cross-product explosion that chaining
+    # OPTIONAL MATCH (gene → transcript → feature → domain) causes.
+    struct_query = """
     MATCH (s:Species)
     OPTIONAL MATCH (s)-[:HAS_GENE]->(g:Gene)
     OPTIONAL MATCH (g)-[:HAS_TRANSCRIPT]->(t:Transcript)
-    OPTIONAL MATCH (t)-[:HAS_FEATURE]->(f:Feature)
-    OPTIONAL MATCH (g)-[:HAS_DOMAIN]->(d:Domain)
+    OPTIONAL MATCH (g)-[:HAS_FEATURE*0..1]->(f)
     WITH s.taxon_id AS taxon,
          s.common_name AS common_name,
          count(DISTINCT g) AS genes,
-         count(DISTINCT t) AS transcripts,
-         count(DISTINCT f) AS features,
-         count(DISTINCT d) AS domains
-    RETURN taxon, common_name, genes, transcripts, features, domains
+         count(DISTINCT t) AS transcripts
+    OPTIONAL MATCH (sp:Species {taxon_id: taxon})-[:HAS_GENE]->(:Gene)-[:HAS_TRANSCRIPT]->
+                   (:Transcript)-[:HAS_FEATURE]->(ft:Feature)
+    RETURN taxon, common_name, genes, transcripts,
+           count(DISTINCT ft) AS features
     ORDER BY taxon
+    """
+
+    # Simpler, correct struct query — count each label type independently.
+    struct_query = """
+    MATCH (s:Species)
+    RETURN s.taxon_id AS taxon, s.common_name AS common_name,
+           size([(s)-[:HAS_GENE]->(g) | g])                              AS genes,
+           size([(s)-[:HAS_GENE]->(:Gene)-[:HAS_TRANSCRIPT]->(t) | t])   AS transcripts,
+           size([(s)-[:HAS_GENE]->(:Gene)-[:HAS_TRANSCRIPT]->(:Transcript)-[:HAS_FEATURE]->(f) | f]) AS features
+    ORDER BY taxon
+    """
+
+    # Domain coverage: protein-coding genes that have at least one domain,
+    # expressed as a percentage of all protein-coding genes for the species.
+    # Using protein-coding as denominator because non-coding genes (lncRNA,
+    # pseudogenes, etc.) will never have Pfam domain annotations.
+    domain_query = """
+    MATCH (s:Species)-[:HAS_GENE]->(g:Gene {biotype: 'protein_coding'})
+    OPTIONAL MATCH (g)-[:HAS_DOMAIN]->(d:Domain)
+    WITH s.taxon_id AS taxon,
+         count(DISTINCT g) AS coding_genes,
+         count(DISTINCT CASE WHEN d IS NOT NULL THEN g END) AS genes_with_domains
+    RETURN taxon, coding_genes, genes_with_domains
     """
 
     coloc_query = """
@@ -150,10 +175,15 @@ def check_neo4j_data(driver) -> dict:
     """
 
     with driver.session() as s:
-        rows = list(s.run(query))
+        rows = list(s.run(struct_query))
+        domain_rows = list(s.run(domain_query))
         coloc_rows = list(s.run(coloc_query))
 
     coloc_by_taxon = {r["taxon"]: r["edges"] for r in coloc_rows}
+    domain_by_taxon = {
+        r["taxon"]: (r["coding_genes"], r["genes_with_domains"])
+        for r in domain_rows
+    }
 
     ingested_taxons = {r["taxon"] for r in rows}
     missing_species = set(SPECIES_REGISTRY.keys()) - ingested_taxons
@@ -164,11 +194,11 @@ def check_neo4j_data(driver) -> dict:
         genes = row["genes"]
         transcripts = row["transcripts"]
         features = row["features"]
-        domains = row["domains"]
         coloc = coloc_by_taxon.get(taxon, 0)
+        coding_genes, genes_with_domains = domain_by_taxon.get(taxon, (0, 0))
         min_genes = MIN_GENES.get(taxon, 1)
         min_cov = MIN_DOMAIN_COVERAGE_PCT.get(taxon, 10.0)
-        domain_pct = (domains / genes * 100) if genes > 0 else 0.0
+        domain_pct = (genes_with_domains / coding_genes * 100) if coding_genes > 0 else 0.0
 
         issues = []
         if genes < min_genes:
@@ -189,7 +219,8 @@ def check_neo4j_data(driver) -> dict:
             "genes": genes,
             "transcripts": transcripts,
             "features": features,
-            "domains": domains,
+            "coding_genes": coding_genes,
+            "genes_with_domains": genes_with_domains,
             "coloc_edges": coloc,
             "domain_coverage_pct": round(domain_pct, 1),
         }
@@ -244,18 +275,24 @@ def _print_schema_report(schema: dict) -> bool:
 def _print_data_report(data_results: dict) -> bool:
     ok_all = True
     print("\n── Neo4j Data ─────────────────────────────────────────────────────")
-    print(f"  {'Taxon':<8} {'Species':<22} {'Genes':>7} {'Tx':>7} {'Feat':>7} {'Domains':>8} {'Cov%':>6}  Issues")
-    print("  " + "-" * 90)
+    print(
+        f"  {'Taxon':<8} {'Species':<22} {'Genes':>7} {'Tx':>7} {'Feat':>7} "
+        f"{'Coding':>7} {'w/Dom':>6} {'Cov%':>6}  Issues"
+    )
+    print("  " + "-" * 100)
     for taxon, r in sorted(data_results.items()):
         status = "✓" if r["ok"] else "✗"
         issues_str = "; ".join(r["issues"]) if r["issues"] else ""
+        coding = r.get("coding_genes", 0)
+        w_dom  = r.get("genes_with_domains", 0)
         print(
             f"  {taxon:<8} {r['common_name']:<22} {r['genes']:>7} {r['transcripts']:>7} "
-            f"{r['features']:>7} {r['domains']:>8} {r['domain_coverage_pct']:>5.1f}%  "
+            f"{r['features']:>7} {coding:>7} {w_dom:>6} {r['domain_coverage_pct']:>5.1f}%  "
             f"{status} {issues_str}"
         )
         if not r["ok"]:
             ok_all = False
+    print("  (Cov% = protein-coding genes with ≥1 domain / all protein-coding genes)")
     return ok_all
 
 

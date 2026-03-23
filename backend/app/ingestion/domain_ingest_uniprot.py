@@ -78,7 +78,7 @@ def fetch_uniprot_domains(
 
     params: dict[str, Any] = {
         "query": query,
-        "fields": "accession,gene_names,ft_domain,xref_pfam",
+        "fields": "accession,gene_names,ft_domain,xref_pfam,xref_ensembl",
         "format": "json",
         "size": _PAGE_SIZE,
     }
@@ -144,11 +144,22 @@ def fetch_uniprot_domains(
 
             # Pfam accessions are at the protein level in uniProtKBCrossReferences,
             # not inside individual feature entries.
-            pfam_list = [
-                x["id"]
-                for x in protein.get("uniProtKBCrossReferences", [])
-                if x.get("database") == "Pfam"
-            ]
+            xrefs = protein.get("uniProtKBCrossReferences", [])
+            pfam_list = [x["id"] for x in xrefs if x.get("database") == "Pfam"]
+
+            # Ensembl GeneId (e.g. ENSG00000012048) — present when Ensembl cross-refs
+            # are available. Used as the primary gene identifier for Neo4j matching
+            # because it is unambiguous, stable, and species-specific (unlike gene
+            # symbols which collide across species and may be absent for some entries).
+            ensembl_gene_id: str | None = None
+            for xref in xrefs:
+                if xref.get("database") == "Ensembl":
+                    for prop in xref.get("properties", []):
+                        if prop.get("key") == "GeneId":
+                            ensembl_gene_id = prop["value"]
+                            break
+                if ensembl_gene_id:
+                    break
 
             domain_features = [
                 f for f in protein.get("features", [])
@@ -173,23 +184,27 @@ def fetch_uniprot_domains(
                 else:
                     pfam_acc = None
 
-                domain_id = (
-                    f"{gene_name}__{pfam_acc}__{start_aa}"
-                    if pfam_acc
-                    else f"{gene_name}__{domain_name.replace(' ', '_')}__{start_aa}"
-                )
+                # domain_id must be species-scoped and gene-scoped to avoid
+                # cross-species collision. Prefer the Ensembl gene_id (stable,
+                # unambiguous) when available; fall back to gene_symbol + taxon_id.
+                name_part = pfam_acc or domain_name.replace(" ", "_")
+                if ensembl_gene_id:
+                    domain_id = f"{ensembl_gene_id}__{name_part}__{start_aa}"
+                else:
+                    domain_id = f"{gene_name}__{taxon_id}__{name_part}__{start_aa}"
 
                 domains.append({
-                    "uniprot_acc":  acc,
-                    "gene_name":    gene_name,
-                    "pfam_acc":     pfam_acc,
-                    "domain_name":  domain_name,
-                    "domain_id":    domain_id,
-                    "start_aa":     int(start_aa),
-                    "end_aa":       int(end_aa),
-                    "e_value":      None,
-                    "source_db":    "uniprot",
-                    "species_taxon": str(taxon_id),  # Gene nodes store this as str
+                    "uniprot_acc":     acc,
+                    "gene_name":       gene_name,
+                    "ensembl_gene_id": ensembl_gene_id,
+                    "pfam_acc":        pfam_acc,
+                    "domain_name":     domain_name,
+                    "domain_id":       domain_id,
+                    "start_aa":        int(start_aa),
+                    "end_aa":          int(end_aa),
+                    "e_value":         None,
+                    "source_db":       "uniprot",
+                    "species_taxon":   str(taxon_id),
                 })
 
         # Pagination: follow Link: <url>; rel="next"
@@ -236,9 +251,16 @@ def load_domains_to_neo4j(
     Returns:
         dict with keys: loaded, skipped_no_gene, errors
     """
+    # Match Gene by Ensembl gene_id when available (unambiguous, species-scoped);
+    # fall back to gene symbol + species_taxon when no cross-reference was returned.
     query = """
     UNWIND $batch AS row
-    MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
+    OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
+      WHERE row.ensembl_gene_id IS NOT NULL
+    OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
+      WHERE row.ensembl_gene_id IS NULL
+    WITH coalesce(g1, g2) AS g, row
+    WHERE g IS NOT NULL
     MERGE (d:Domain {domain_id: row.domain_id})
     ON CREATE SET d += row.props
     ON MATCH  SET d += row.props
@@ -269,10 +291,11 @@ def load_domains_to_neo4j(
                 "species_taxon": d["species_taxon"],
             }
             batch_rows.append({
-                "gene_name":    d["gene_name"],
-                "species_taxon": d["species_taxon"],
-                "domain_id":    d["domain_id"],
-                "props":        props,
+                "gene_name":       d["gene_name"],
+                "ensembl_gene_id": d.get("ensembl_gene_id"),
+                "species_taxon":   d["species_taxon"],
+                "domain_id":       d["domain_id"],
+                "props":           props,
             })
 
         try:
@@ -295,12 +318,19 @@ def load_domains_to_neo4j_accurate(
 ) -> dict[str, int]:
     """
     Accurate version that tracks which genes were not found.
-    Uses OPTIONAL MATCH to detect missing genes.
+
+    Matching priority:
+      1. Ensembl gene_id  — unambiguous, species-scoped, no symbol collision
+      2. Gene symbol + species_taxon — fallback when no Ensembl xref is available
     """
+    # Primary: match by Ensembl gene_id; fallback: match by symbol + species_taxon.
     query = """
     UNWIND $batch AS row
-    OPTIONAL MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
-    WITH g, row
+    OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
+      WHERE row.ensembl_gene_id IS NOT NULL
+    OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
+      WHERE row.ensembl_gene_id IS NULL
+    WITH coalesce(g1, g2) AS g, row
     WHERE g IS NOT NULL
     MERGE (d:Domain {domain_id: row.domain_id})
     ON CREATE SET d += row.props
@@ -308,10 +338,17 @@ def load_domains_to_neo4j_accurate(
     MERGE (g)-[:HAS_DOMAIN]->(d)
     """
 
+    # Check query mirrors the same matching logic, returns one row per domain record.
     check_query = """
     UNWIND $batch AS row
-    OPTIONAL MATCH (g:Gene {name: row.gene_name, species_taxon: row.species_taxon})
-    RETURN row.gene_name AS gene_name, g IS NOT NULL AS found
+    OPTIONAL MATCH (g1:Gene {gene_id: row.ensembl_gene_id})
+      WHERE row.ensembl_gene_id IS NOT NULL
+    OPTIONAL MATCH (g2:Gene {name: row.gene_name, species_taxon: row.species_taxon})
+      WHERE row.ensembl_gene_id IS NULL
+    WITH coalesce(g1, g2) AS g, row
+    RETURN row.ensembl_gene_id AS ensembl_gene_id,
+           row.gene_name       AS gene_name,
+           g IS NOT NULL       AS found
     """
 
     loaded = 0
@@ -326,28 +363,35 @@ def load_domains_to_neo4j_accurate(
         batch_rows = []
         for d in chunk:
             props = {
-                "domain_id":    d["domain_id"],
-                "uniprot_acc":  d["uniprot_acc"],
-                "pfam_acc":     d["pfam_acc"],
-                "name":         d["domain_name"],
-                "source_db":    d["source_db"],
-                "start_aa":     d["start_aa"],
-                "end_aa":       d["end_aa"],
-                "e_value":      d.get("e_value"),
-                "species_taxon": d["species_taxon"],
+                "domain_id":       d["domain_id"],
+                "uniprot_acc":     d["uniprot_acc"],
+                "pfam_acc":        d["pfam_acc"],
+                "name":            d["domain_name"],
+                "source_db":       d["source_db"],
+                "start_aa":        d["start_aa"],
+                "end_aa":          d["end_aa"],
+                "e_value":         d.get("e_value"),
+                "species_taxon":   d["species_taxon"],
             }
             batch_rows.append({
-                "gene_name":    d["gene_name"],
-                "species_taxon": d["species_taxon"],
-                "domain_id":    d["domain_id"],
-                "props":        props,
+                "gene_name":       d["gene_name"],
+                "ensembl_gene_id": d.get("ensembl_gene_id"),
+                "species_taxon":   d["species_taxon"],
+                "domain_id":       d["domain_id"],
+                "props":           props,
             })
 
         try:
             with driver.session() as session:
-                # Check which genes exist
+                # Deduplicate by the effective key (ensembl_gene_id or gene_name)
+                # so each unique gene is counted once for stats, regardless of
+                # how many domain records it contributes to this batch.
                 check_result = session.run(check_query, batch=batch_rows)
-                gene_found = {r["gene_name"]: r["found"] for r in check_result}
+                gene_found: dict[str, bool] = {}
+                for r in check_result:
+                    key = r["ensembl_gene_id"] or r["gene_name"]
+                    gene_found[key] = r["found"]
+
                 batch_skipped = sum(1 for f in gene_found.values() if not f)
                 batch_found = len(gene_found) - batch_skipped
 
@@ -357,12 +401,12 @@ def load_domains_to_neo4j_accurate(
                 loaded += batch_found
                 skipped_no_gene += batch_skipped
 
-                for gene_name, found in gene_found.items():
+                for key, found in gene_found.items():
                     if not found:
                         logger.debug(
-                            "Gene not found in Neo4j: %s (taxon %d) — skipped",
-                            gene_name,
-                            chunk[0]["species_taxon"] if chunk else 0,
+                            "Gene not found in Neo4j: %s (taxon %s) — skipped",
+                            key,
+                            chunk[0]["species_taxon"] if chunk else "?",
                         )
         except Exception as exc:
             logger.error("Batch write error: %s", exc)
