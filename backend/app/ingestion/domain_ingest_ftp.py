@@ -308,11 +308,14 @@ def run_ftp_domain_ingest(
     """
 
     def _flush(buf: list[dict]):
-        nonlocal total_loaded
+        nonlocal total_loaded, total_skipped
         batch_rows = []
+        no_gene_info = 0
         for item in buf:
             gene_info = uniprot_map.get(item["uniprot_acc"])
             if not gene_info:
+                no_gene_info += 1
+                total_skipped += 1
                 continue
             gene_id = gene_info["gene_id"]
             taxon_id = gene_info["taxon_id"]
@@ -332,15 +335,31 @@ def run_ftp_domain_ingest(
             batch_rows.append({"gene_id": gene_id, "domain_id": domain_id, "props": props})
             per_taxon_counts[str(taxon_id)] += 1
 
+        if no_gene_info:
+            logger.warning(
+                "_flush: %d items had no gene_info (acc not in uniprot_map) — skipped",
+                no_gene_info,
+            )
+
         if not batch_rows:
             return
 
         try:
             with driver.session() as session:
-                session.run(write_query, batch=batch_rows)
+                result = session.run(write_query, batch=batch_rows)
+                summary = result.consume()
+                nodes_created = summary.counters.nodes_created
+                rels_created = summary.counters.relationships_created
+                if nodes_created < len(batch_rows) or rels_created < len(batch_rows):
+                    logger.warning(
+                        "_flush: submitted %d rows → %d Domain nodes created, "
+                        "%d HAS_DOMAIN rels created (Gene MATCH may have failed for some)",
+                        len(batch_rows), nodes_created, rels_created,
+                    )
             total_loaded += len(batch_rows)
         except Exception as exc:
             logger.error("FTP batch write error: %s", exc)
+            total_skipped += len(batch_rows)
 
     for domain in stream_parse_protein2ipr(ftp_filepath, acc_set):
         buffer.append(domain)
