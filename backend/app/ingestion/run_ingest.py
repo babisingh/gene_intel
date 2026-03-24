@@ -474,7 +474,35 @@ Examples:
         if args.step in ("gtf", "all"):
             ingest_species(taxon_id, driver)
 
-        if args.step in ("domains", "all"):
+    # FTP ingest: single pass over the file for ALL species at once.
+    # Running it per-species would scan 1B+ lines once per taxon (~30 min each).
+    if args.step in ("domains", "all"):
+        ftp_taxon_ids = []
+        non_ftp_taxon_ids = []
+        for taxon_id in taxon_ids:
+            source = args.domain_source
+            if source is None:
+                source = _auto_select_domain_route(int(taxon_id))
+            if source == "ftp":
+                ftp_taxon_ids.append(taxon_id)
+            else:
+                non_ftp_taxon_ids.append(taxon_id)
+
+        if ftp_taxon_ids:
+            if not args.ftp_file:
+                logger.error("--ftp-file required when --domain-source ftp")
+            else:
+                from app.ingestion.domain_ingest_ftp import run_ftp_domain_ingest
+                logger.info(
+                    "FTP domain ingest: single pass for %d species: %s",
+                    len(ftp_taxon_ids), ftp_taxon_ids,
+                )
+                run_ftp_domain_ingest(
+                    args.ftp_file, driver,
+                    [int(t) for t in ftp_taxon_ids],
+                )
+
+        for taxon_id in non_ftp_taxon_ids:
             source = args.domain_source
             if source is None:
                 source = _auto_select_domain_route(int(taxon_id))
