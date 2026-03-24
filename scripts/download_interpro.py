@@ -350,7 +350,7 @@ def _parse_idmap(idmap_path: str) -> Dict[str, str]:
     with gzip.open(idmap_path, "rt") as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) == 3 and parts[1] == "EnsemblGenome":
+            if len(parts) == 3 and parts[1] in ("Ensembl", "EnsemblGenome"):
                 mapping[parts[0]] = parts[2]
     return mapping
 
