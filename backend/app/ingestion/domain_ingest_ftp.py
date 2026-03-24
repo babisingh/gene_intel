@@ -194,17 +194,13 @@ def stream_parse_protein2ipr(
                 continue
 
             cols = line.split("\t")
-            if len(cols) < 7:
-                # Only warn if this line would have been relevant
-                if (
-                    len(cols) >= 4
-                    and cols[0] in uniprot_filter_set
-                    and cols[3].startswith("PF")
-                ):
-                    logger.warning(
-                        "Malformed line %d (expected 7+ cols, got %d) — skipped",
-                        line_count, len(cols),
-                    )
+            n = len(cols)
+
+            # protein2ipr.dat has two Pfam row layouts:
+            #   7-col: UniProt | IPR | IPR_name | PF_acc | domain_name | start | end
+            #   6-col: UniProt | IPR | IPR_name | PF_acc | start | end  (name absent)
+            # Anything shorter (or without a PF_acc at col 3) is truly malformed.
+            if n < 6:
                 skip_count += 1
                 continue
 
@@ -219,9 +215,18 @@ def stream_parse_protein2ipr(
             if not pfam_acc.startswith("PF"):
                 continue
 
+            # Determine layout based on column count
+            if n >= 7:
+                domain_name = cols[4]
+                start_col, end_col = 5, 6
+            else:
+                # 6-col layout: no domain name
+                domain_name = ""
+                start_col, end_col = 4, 5
+
             try:
-                start_aa = int(cols[5])
-                end_aa = int(cols[6])
+                start_aa = int(cols[start_col])
+                end_aa = int(cols[end_col])
             except (ValueError, IndexError):
                 logger.warning("Malformed start/end on line %d — skipped", line_count)
                 skip_count += 1
@@ -233,7 +238,7 @@ def stream_parse_protein2ipr(
                 "ipr_acc":     cols[1],
                 "ipr_name":    cols[2],
                 "pfam_acc":    pfam_acc,
-                "domain_name": cols[4],
+                "domain_name": domain_name,
                 "start_aa":    start_aa,
                 "end_aa":      end_aa,
                 "e_value":     None,
