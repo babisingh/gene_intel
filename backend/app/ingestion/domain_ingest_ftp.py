@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import re
 import time
 from collections import defaultdict
 from typing import Any
@@ -136,16 +137,11 @@ def build_taxon_uniprot_map(
                     taxon_count += 1
                     break  # one gene_id per accession is enough
 
-            # Follow pagination
-            next_url = None
+            # Follow pagination — use regex to avoid splitting on commas
+            # inside the URL (e.g. fields=accession,xref_ensembl)
             link_header = resp.headers.get("Link", "")
-            for part in link_header.split(","):
-                part = part.strip()
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-                    break
-            url = next_url
-            params = {}  # params only needed on page 1
+            m = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
+            url = m.group(1) if m else None
 
         logger.info("Fetched %d UniProt accessions for taxon %d (reviewed_only=%s)",
                     taxon_count, taxon_id, reviewed_only)
