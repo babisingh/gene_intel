@@ -344,21 +344,36 @@ def run_ftp_domain_ingest(
         if not batch_rows:
             return
 
-        try:
-            with driver.session() as session:
-                result = session.run(write_query, batch=batch_rows)
-                summary = result.consume()
-                nodes_created = summary.counters.nodes_created
-                rels_created = summary.counters.relationships_created
-                if nodes_created < len(batch_rows) or rels_created < len(batch_rows):
-                    logger.warning(
-                        "_flush: submitted %d rows → %d Domain nodes created, "
-                        "%d HAS_DOMAIN rels created (Gene MATCH may have failed for some)",
-                        len(batch_rows), nodes_created, rels_created,
-                    )
-            total_loaded += len(batch_rows)
-        except Exception as exc:
-            logger.error("FTP batch write error: %s", exc)
+        last_exc: Exception | None = None
+        for attempt in range(4):  # up to 4 attempts
+            if attempt:
+                wait = 2 ** attempt  # 2, 4, 8 seconds
+                logger.warning(
+                    "_flush: batch write failed (attempt %d), retrying in %ds — %s",
+                    attempt, wait, last_exc,
+                )
+                time.sleep(wait)
+            try:
+                with driver.session() as session:
+                    result = session.run(write_query, batch=batch_rows)
+                    summary = result.consume()
+                    nodes_created = summary.counters.nodes_created
+                    rels_created = summary.counters.relationships_created
+                    if nodes_created < len(batch_rows) or rels_created < len(batch_rows):
+                        logger.warning(
+                            "_flush: submitted %d rows → %d Domain nodes created, "
+                            "%d HAS_DOMAIN rels created (Gene MATCH may have failed for some)",
+                            len(batch_rows), nodes_created, rels_created,
+                        )
+                total_loaded += len(batch_rows)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+
+        if last_exc is not None:
+            logger.error("FTP batch write failed after 4 attempts — %d rows lost: %s",
+                         len(batch_rows), last_exc)
             total_skipped += len(batch_rows)
 
     for domain in stream_parse_protein2ipr(ftp_filepath, acc_set):
