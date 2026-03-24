@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import os
 import re
 import time
 from collections import defaultdict
@@ -40,6 +41,22 @@ _LOG_EVERY_LINES = 10_000_000
 _UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
 _PAGE_SIZE = 500
 
+# Local idmapping file directory (mirrors download_interpro.py INTERPRO_DIR)
+_IDMAP_DIR = os.environ.get("INTERPRO_DATA_DIR", "./data/interpro")
+
+# Taxon IDs that have a local UniProt idmapping file available
+# Key: taxon_id used in the pipeline; Value: idmap filename stem (without _idmapping.dat.gz)
+_TAXON_IDMAP: dict[int, str] = {
+    9606:   "HUMAN_9606",
+    10090:  "MOUSE_10090",
+    7955:   "DANRE_7955",
+    9031:   "CHICK_9031",
+    7227:   "DROME_7227",
+    6239:   "CAEEL_6239",
+    3702:   "ARATH_3702",
+    4932:   "YEAST_559292",
+}
+
 # Species where Swiss-Prot (reviewed) entries give good coverage
 _REVIEWED_ONLY_TAXONS = {
     9606, 10090, 7955, 9031, 9598, 7227, 6239,
@@ -49,6 +66,52 @@ _REVIEWED_ONLY_TAXONS = {
 _TAXON_REMAP = {
     4932: 559292,   # S. cerevisiae species → S288C reference strain
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local idmapping helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_from_idmap_file(taxon_id: int, idmap_code: str) -> dict[str, dict] | None:
+    """
+    Parse a local UniProt idmapping file and return {uniprot_acc: {gene_id, taxon_id}}.
+
+    The file format is tab-separated with three columns:
+        UniProt_acc  DB_type  external_id
+
+    We keep rows where DB_type is 'Ensembl' (vertebrates) or 'EnsemblGenome'
+    (plants / fungi / invertebrates).
+
+    Returns None if the file is missing or unreadable.
+    """
+    path = os.path.join(_IDMAP_DIR, f"{idmap_code}_idmapping.dat.gz")
+    if not os.path.exists(path):
+        logger.warning("idmapping file not found: %s — will fall back to REST", path)
+        return None
+
+    mapping: dict[str, dict] = {}
+    taxon_str = str(taxon_id)
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 3:
+                    continue
+                acc, db_type, ext_id = parts
+                if db_type not in ("Ensembl", "EnsemblGenome"):
+                    continue
+                gene_id = ext_id.split(".")[0]  # strip version suffix if present
+                if acc not in mapping:           # keep first hit per accession
+                    mapping[acc] = {"gene_id": gene_id, "taxon_id": taxon_str}
+    except Exception as exc:
+        logger.warning("Failed to parse idmapping file %s: %s — will fall back to REST", path, exc)
+        return None
+
+    logger.info(
+        "Loaded %d UniProt accessions for taxon %d from local idmapping file (%s)",
+        len(mapping), taxon_id, idmap_code,
+    )
+    return mapping
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +138,16 @@ def build_taxon_uniprot_map(
     mapping: dict[str, dict] = {}
 
     for taxon_id in taxon_ids:
+        # ── Try local idmapping file first ────────────────────────────────────
+        idmap_code = _TAXON_IDMAP.get(taxon_id)
+        if idmap_code:
+            local = _build_from_idmap_file(taxon_id, idmap_code)
+            if local is not None:
+                mapping.update(local)
+                continue  # no REST call needed for this taxon
+
+        # ── Fall back to UniProt REST API ─────────────────────────────────────
+        logger.info("Fetching UniProt mapping for taxon %d via REST API", taxon_id)
         api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
         reviewed_only = taxon_id in _REVIEWED_ONLY_TAXONS
         qualifier = "AND reviewed:true" if reviewed_only else ""
@@ -143,7 +216,7 @@ def build_taxon_uniprot_map(
             m = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
             url = m.group(1) if m else None
 
-        logger.info("Fetched %d UniProt accessions for taxon %d (reviewed_only=%s)",
+        logger.info("Fetched %d UniProt accessions for taxon %d via REST (reviewed_only=%s)",
                     taxon_count, taxon_id, reviewed_only)
 
     logger.info("Total UniProt accessions mapped: %d", len(mapping))
