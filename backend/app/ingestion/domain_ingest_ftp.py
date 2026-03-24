@@ -122,10 +122,16 @@ def stream_parse_protein2ipr(
 
             cols = line.split("\t")
             if len(cols) < 7:
-                logger.warning(
-                    "Malformed line %d (expected 7+ cols, got %d) — skipped",
-                    line_count, len(cols),
-                )
+                # Only warn if this line would have been relevant
+                if (
+                    len(cols) >= 4
+                    and cols[0] in uniprot_filter_set
+                    and cols[3].startswith("PF")
+                ):
+                    logger.warning(
+                        "Malformed line %d (expected 7+ cols, got %d) — skipped",
+                        line_count, len(cols),
+                    )
                 skip_count += 1
                 continue
 
