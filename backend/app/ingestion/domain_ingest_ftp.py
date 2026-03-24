@@ -28,11 +28,26 @@ import time
 from collections import defaultdict
 from typing import Any
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 _FTP_URL = "https://ftp.ebi.ac.uk/pub/databases/interpro/current_release/protein2ipr.dat.gz"
 _FLUSH_EVERY = 10_000  # Neo4j write frequency
 _LOG_EVERY_LINES = 10_000_000
+
+_UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
+_PAGE_SIZE = 500
+
+# Species where Swiss-Prot (reviewed) entries give good coverage
+_REVIEWED_ONLY_TAXONS = {
+    9606, 10090, 7955, 9031, 9598, 7227, 6239,
+    3702, 4530, 4932, 9913, 8665,
+}
+# Some species use a strain-level taxon in UniProt that differs from the GTF taxon
+_TAXON_REMAP = {
+    4932: 559292,   # S. cerevisiae species → S288C reference strain
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,36 +59,98 @@ def build_taxon_uniprot_map(
     taxon_ids: list[int],
 ) -> tuple[dict[str, dict], set[str]]:
     """
-    Build a mapping of UniProt accession → (gene_id, taxon_id) from Neo4j.
+    Build a mapping of UniProt accession → (gene_id, taxon_id).
+
+    Gene nodes in Neo4j do not store uniprot_acc (it is only on Domain nodes),
+    so this function fetches the accession → Ensembl gene ID mapping directly
+    from the UniProt REST API (accession + xref_ensembl fields only — no domain
+    data is fetched here).
 
     Returns:
         (mapping_dict, acc_set) where:
             mapping_dict: {uniprot_acc: {"gene_id": ..., "taxon_id": ...}}
             acc_set:      set of all uniprot_accs for O(1) membership tests
     """
-    query = """
-    MATCH (g:Gene)
-    WHERE g.uniprot_acc IS NOT NULL
-      AND g.species_taxon IN $taxon_ids
-    RETURN g.uniprot_acc AS uniprot_acc, g.gene_id AS gene_id,
-           g.species_taxon AS taxon_id
-    """
-
     mapping: dict[str, dict] = {}
 
-    try:
-        with driver.session() as session:
-            result = session.run(query, taxon_ids=[str(t) for t in taxon_ids])
-            for record in result:
-                acc = record["uniprot_acc"]
-                mapping[acc] = {
-                    "gene_id":  record["gene_id"],
-                    "taxon_id": record["taxon_id"],
-                }
-    except Exception as exc:
-        logger.error("Failed to build UniProt map from Neo4j: %s", exc)
+    for taxon_id in taxon_ids:
+        api_taxon = _TAXON_REMAP.get(taxon_id, taxon_id)
+        reviewed_only = taxon_id in _REVIEWED_ONLY_TAXONS
+        qualifier = "AND reviewed:true" if reviewed_only else ""
+        query_str = f"(taxonomy_id:{api_taxon} {qualifier})".strip()
 
-    logger.info("Loaded %d UniProt accessions from Neo4j for filtering", len(mapping))
+        params: dict[str, Any] = {
+            "query":  query_str,
+            "fields": "accession,xref_ensembl",
+            "format": "json",
+            "size":   _PAGE_SIZE,
+        }
+
+        url: str | None = _UNIPROT_SEARCH
+        page = 0
+        taxon_count = 0
+
+        while url:
+            page += 1
+            try:
+                resp = requests.get(
+                    url,
+                    params=params if page == 1 else None,
+                    timeout=30,
+                )
+            except requests.exceptions.RequestException as exc:
+                logger.error("UniProt mapping request error (taxon %d, page %d): %s",
+                             taxon_id, page, exc)
+                break
+
+            if resp.status_code != 200:
+                logger.error("UniProt mapping returned HTTP %d for taxon %d",
+                             resp.status_code, taxon_id)
+                break
+
+            data = resp.json()
+            for entry in data.get("results", []):
+                acc = entry.get("primaryAccession", "")
+                if not acc:
+                    continue
+
+                # xref_ensembl is a list of cross-reference objects
+                ensembl_ids = []
+                for xref in entry.get("uniProtKBCrossReferences", []):
+                    if xref.get("database") == "Ensembl":
+                        # gene cross-ref is nested; the gene stable ID is in the last property
+                        for prop in xref.get("properties", []):
+                            if prop.get("key") == "GeneId":
+                                ensembl_ids.append(prop["value"])
+                        # Also accept the id field directly (isoform-level entries)
+                        if xref.get("id"):
+                            ensembl_ids.append(xref["id"].split(".")[0])
+
+                for ensembl_gene_id in ensembl_ids:
+                    if not ensembl_gene_id:
+                        continue
+                    mapping[acc] = {
+                        "gene_id":  ensembl_gene_id,
+                        "taxon_id": str(taxon_id),
+                    }
+                    taxon_count += 1
+                    break  # one gene_id per accession is enough
+
+            # Follow pagination
+            next_url = None
+            link_header = resp.headers.get("Link", "")
+            for part in link_header.split(","):
+                part = part.strip()
+                if 'rel="next"' in part:
+                    next_url = part.split(";")[0].strip().strip("<>")
+                    break
+            url = next_url
+            params = {}  # params only needed on page 1
+
+        logger.info("Fetched %d UniProt accessions for taxon %d (reviewed_only=%s)",
+                    taxon_count, taxon_id, reviewed_only)
+
+    logger.info("Total UniProt accessions mapped: %d", len(mapping))
     acc_set = set(mapping.keys())
     return mapping, acc_set
 
@@ -191,7 +268,7 @@ def run_ftp_domain_ingest(
     Estimated time: 30-90 minutes depending on disk speed and Neo4j write rate.
 
     Steps:
-        1. Build UniProt → gene_id filter map from Neo4j.
+        1. Fetch UniProt accession → gene_id map via the UniProt REST API.
         2. Stream-parse protein2ipr.dat.gz (slow step).
         3. Flush to Neo4j every 10,000 records.
         4. Return stats per species.
@@ -209,8 +286,8 @@ def run_ftp_domain_ingest(
 
     if not acc_set:
         logger.warning(
-            "No UniProt accessions found in Neo4j for taxon_ids %s. "
-            "Make sure GTF data is loaded first.",
+            "No UniProt accessions mapped for taxon_ids %s — "
+            "check UniProt API connectivity or taxon IDs.",
             taxon_ids,
         )
 
