@@ -55,6 +55,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -177,13 +178,18 @@ SPECIES = {
 TSV_HEADERS = ["Gene stable ID", "Pfam ID", "InterPro ID", "GO term accession"]
 
 # Batch sizes
-UNIPROT_BATCH_SIZE   = 200   # accessions per POST request — 500 triggers HTTP 400 from UniProt
+UNIPROT_BATCH_SIZE   = 50    # accessions per POST request (proven safe; larger batches → HTTP 400)
 ENSEMBL_BATCH_SIZE   = 200   # gene IDs per POST to Ensembl REST
 
 # Concurrency
-UNIPROT_WORKERS  = 5   # parallel UniProt batch requests (>8 triggers rate-limit 400s)
+UNIPROT_WORKERS  = 6   # parallel UniProt batch requests per species
 ENSEMBL_WORKERS  = 16  # parallel Ensembl gene queries
-SPECIES_WORKERS  = 4   # parallel species (top-level)
+SPECIES_WORKERS  = 3   # parallel species (top-level)
+
+# Global cap on simultaneous UniProt connections across all species threads.
+# SPECIES_WORKERS × UNIPROT_WORKERS could reach 18 otherwise, which triggers
+# UniProt rate-limiting disguised as HTTP 400 errors.
+_UNIPROT_SEMAPHORE = threading.Semaphore(6)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,14 +307,15 @@ def _parse_uniprot_tsv_row(header: List[str], cols: List[str]) -> Dict:
 def _fetch_domain_batch(batch: List[str], fields: str) -> Dict[str, Dict]:
     """
     POST a single batch of accessions to UniProt REST and return parsed results.
-    Using POST avoids URL-length limits and allows much larger batches (500+).
+    Acquires the global semaphore to cap total concurrent UniProt connections.
     """
     query = " OR ".join(f"accession:{a}" for a in batch)
     body  = urllib.parse.urlencode({
         "query": query, "fields": fields,
         "format": "tsv", "size": len(batch),
     }).encode()
-    raw  = _http_post(UNIPROT_SEARCH, body, content_type="application/x-www-form-urlencoded")
+    with _UNIPROT_SEMAPHORE:
+        raw = _http_post(UNIPROT_SEARCH, body, content_type="application/x-www-form-urlencoded")
     result = {}
     rows = raw.strip().split("\n")
     if len(rows) >= 2:
