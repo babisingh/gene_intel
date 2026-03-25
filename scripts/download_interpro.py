@@ -374,12 +374,21 @@ def _ensure_idmap(idmap_code: str) -> str:
 
 
 def _parse_idmap(idmap_path: str) -> Dict[str, str]:
-    """Parse idmapping.dat.gz → {uniprot_acc: ensembl_gene_id}."""
+    """Parse idmapping.dat.gz → {uniprot_acc: ensembl_gene_id}.
+
+    UniProt uses different DB type names per division:
+      Ensembl        — vertebrates (human, mouse, etc.)
+      EnsemblGenome  — generic non-vertebrate (older files)
+      EnsemblPlants  — plants (Arabidopsis, Rice, …)
+      EnsemblFungi   — fungi (Yeast, A. niger, …)
+      EnsemblMetazoa — invertebrates (Drosophila, C. elegans, …)
+    We accept any type starting with 'Ensembl'.
+    """
     mapping = {}
     with gzip.open(idmap_path, "rt") as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) == 3 and parts[1] in ("Ensembl", "EnsemblGenome"):
+            if len(parts) == 3 and parts[1].startswith("Ensembl"):
                 mapping[parts[0]] = parts[2]
     return mapping
 

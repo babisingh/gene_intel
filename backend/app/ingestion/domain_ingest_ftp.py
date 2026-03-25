@@ -98,7 +98,7 @@ def _build_from_idmap_file(taxon_id: int, idmap_code: str) -> dict[str, dict] | 
                 if len(parts) != 3:
                     continue
                 acc, db_type, ext_id = parts
-                if db_type not in ("Ensembl", "EnsemblGenome"):
+                if not db_type.startswith("Ensembl"):
                     continue
                 gene_id = ext_id.split(".")[0]  # strip version suffix if present
                 if acc not in mapping:           # keep first hit per accession
