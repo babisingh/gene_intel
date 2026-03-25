@@ -35,7 +35,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _FTP_URL = "https://ftp.ebi.ac.uk/pub/databases/interpro/current_release/protein2ipr.dat.gz"
-_FLUSH_EVERY = 10_000  # Neo4j write frequency
+_FLUSH_EVERY = 50_000  # Neo4j write frequency — larger batches = fewer round trips
 _LOG_EVERY_LINES = 10_000_000
 
 _UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
@@ -449,11 +449,28 @@ def run_ftp_domain_ingest(
                          len(batch_rows), last_exc)
             total_skipped += len(batch_rows)
 
+    _last_activity = time.monotonic()
+    _KEEPALIVE_INTERVAL = 60  # seconds — ping Neo4j if idle this long
+
+    def _keepalive():
+        nonlocal _last_activity
+        if time.monotonic() - _last_activity >= _KEEPALIVE_INTERVAL:
+            try:
+                with driver.session() as s:
+                    s.run("RETURN 1").consume()
+                logger.debug("Neo4j keepalive ping sent")
+            except Exception as exc:
+                logger.warning("Keepalive ping failed: %s", exc)
+            _last_activity = time.monotonic()
+
     for domain in stream_parse_protein2ipr(ftp_filepath, acc_set):
         buffer.append(domain)
         if len(buffer) >= _FLUSH_EVERY:
             _flush(buffer)
             buffer.clear()
+            _last_activity = time.monotonic()
+        else:
+            _keepalive()
 
     # Flush remaining
     if buffer:
