@@ -306,16 +306,16 @@ def _parse_uniprot_tsv_row(header: List[str], cols: List[str]) -> Dict:
 
 def _fetch_domain_batch(batch: List[str], fields: str) -> Dict[str, Dict]:
     """
-    POST a single batch of accessions to UniProt REST and return parsed results.
+    GET a single batch of accessions from UniProt REST and return parsed results.
     Acquires the global semaphore to cap total concurrent UniProt connections.
     """
-    query = " OR ".join(f"accession:{a}" for a in batch)
-    body  = urllib.parse.urlencode({
+    query  = " OR ".join(f"accession:{a}" for a in batch)
+    params = urllib.parse.urlencode({
         "query": query, "fields": fields,
         "format": "tsv", "size": len(batch),
-    }).encode()
+    })
     with _UNIPROT_SEMAPHORE:
-        raw = _http_post(UNIPROT_SEARCH, body, content_type="application/x-www-form-urlencoded")
+        raw = _http_get(f"{UNIPROT_SEARCH}?{params}")
     result = {}
     rows = raw.strip().split("\n")
     if len(rows) >= 2:
