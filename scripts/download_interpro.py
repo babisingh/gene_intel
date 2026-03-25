@@ -51,6 +51,7 @@ import argparse
 import csv
 import gzip
 import io
+import json
 import os
 import re
 import sys
@@ -58,6 +59,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 
 # ── Directory config ──────────────────────────────────────────────────────────
@@ -175,8 +177,13 @@ SPECIES = {
 TSV_HEADERS = ["Gene stable ID", "Pfam ID", "InterPro ID", "GO term accession"]
 
 # Batch sizes
-UNIPROT_BATCH_SIZE   = 50    # accessions per search request (URL length limit)
+UNIPROT_BATCH_SIZE   = 500   # accessions per POST request (no URL-length limit with POST)
 ENSEMBL_BATCH_SIZE   = 200   # gene IDs per POST to Ensembl REST
+
+# Concurrency
+UNIPROT_WORKERS  = 8   # parallel UniProt batch requests
+ENSEMBL_WORKERS  = 16  # parallel Ensembl gene queries
+SPECIES_WORKERS  = 4   # parallel species (top-level)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -291,37 +298,52 @@ def _parse_uniprot_tsv_row(header: List[str], cols: List[str]) -> Dict:
     return {"accession": acc, "pfam": pfam, "interpro": interpro, "go": go}
 
 
+def _fetch_domain_batch(batch: List[str], fields: str) -> Dict[str, Dict]:
+    """
+    POST a single batch of accessions to UniProt REST and return parsed results.
+    Using POST avoids URL-length limits and allows much larger batches (500+).
+    """
+    query = " OR ".join(f"accession:{a}" for a in batch)
+    body  = urllib.parse.urlencode({
+        "query": query, "fields": fields,
+        "format": "tsv", "size": len(batch),
+    }).encode()
+    raw  = _http_post(UNIPROT_SEARCH, body, content_type="application/x-www-form-urlencoded")
+    result = {}
+    rows = raw.strip().split("\n")
+    if len(rows) >= 2:
+        header = rows[0].split("\t")
+        for row in rows[1:]:
+            cols = row.split("\t")
+            if len(cols) < 2:
+                continue
+            parsed = _parse_uniprot_tsv_row(header, cols)
+            if parsed["accession"]:
+                result[parsed["accession"]] = parsed
+    return result
+
+
 def fetch_domains_for_accessions(accessions: List[str]) -> Dict[str, Dict]:
     """
-    Batch-query UniProt REST for Pfam / InterPro / GO.
+    Batch-query UniProt REST for Pfam / InterPro / GO using parallel POST requests.
     Returns {uniprot_acc: {pfam:[...], interpro:[...], go:[...]}}.
     """
-    fields   = "accession,xref_interpro,xref_pfam,go_id"
-    all_data = {}
-    batches  = [accessions[i:i + UNIPROT_BATCH_SIZE]
-                for i in range(0, len(accessions), UNIPROT_BATCH_SIZE)]
-    n        = len(batches)
+    fields  = "accession,xref_interpro,xref_pfam,go_id"
+    batches = [accessions[i:i + UNIPROT_BATCH_SIZE]
+               for i in range(0, len(accessions), UNIPROT_BATCH_SIZE)]
+    n       = len(batches)
+    all_data: Dict[str, Dict] = {}
+    done = 0
 
-    for i, batch in enumerate(batches, 1):
-        query  = " OR ".join(f"accession:{a}" for a in batch)
-        params = urllib.parse.urlencode({
-            "query": query, "fields": fields,
-            "format": "tsv", "size": len(batch),
-        })
-        raw  = _http_get(f"{UNIPROT_SEARCH}?{params}")
-        rows = raw.strip().split("\n")
-        if len(rows) >= 2:
-            header = rows[0].split("\t")
-            for row in rows[1:]:
-                cols = row.split("\t")
-                if len(cols) < 2:
-                    continue
-                parsed = _parse_uniprot_tsv_row(header, cols)
-                if parsed["accession"]:
-                    all_data[parsed["accession"]] = parsed
-        print(f"\r    batch {i}/{n}", end="", flush=True)
-        if i < n:
-            time.sleep(0.3)
+    with ThreadPoolExecutor(max_workers=UNIPROT_WORKERS) as pool:
+        futures = {pool.submit(_fetch_domain_batch, b, fields): b for b in batches}
+        for future in as_completed(futures):
+            try:
+                all_data.update(future.result())
+            except Exception as exc:
+                print(f"\n    batch error: {exc}")
+            done += 1
+            print(f"\r    batch {done}/{n}", end="", flush=True)
 
     print(f"\r    {len(all_data):,} proteins with domain data        ")
     return all_data
@@ -569,7 +591,6 @@ def _fetch_ensembl_protein_features(
     for attempt in range(retries + 1):
         try:
             raw = _http_get(url, timeout=30)
-            import json
             features = json.loads(raw)
             return features if isinstance(features, list) else []
         except Exception as exc:
@@ -579,50 +600,59 @@ def _fetch_ensembl_protein_features(
     return []
 
 
-def run_ensembl_rest(cfg: Dict, out_path: str) -> bool:
-    import json
+def _query_ensembl_gene(args) -> Dict:
+    """Worker: fetch protein features for one gene. Returns dict ready for rows list."""
+    host, gene_id = args
+    features = _fetch_ensembl_protein_features(host, gene_id)
+    pfam_set     = set()
+    interpro_set = set()
+    for feat in features:
+        ipr = feat.get("interpro", "")
+        hit = feat.get("id", "")
+        if ipr:
+            interpro_set.add(ipr)
+        if hit.startswith("PF"):
+            pfam_set.add(hit)
+    return {
+        "gene_id":      gene_id,
+        "pfam":         list(pfam_set),
+        "interpro":     list(interpro_set),
+        "go":           [],
+        "has_features": bool(features),
+    }
 
+
+def run_ensembl_rest(cfg: Dict, out_path: str) -> bool:
     gtf_path = os.path.join(GTF_DIR, cfg["gtf_file"])
     host     = cfg["ensembl_host"]
 
     if not os.path.exists(gtf_path):
         print(f"  [ensembl-REST]  {cfg['name']}  — GTF not found: {gtf_path}")
         print(f"    Skipping. Download the GTF first, then re-run.")
-        # Write empty TSV with just headers so the pipeline doesn't fail
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         with open(out_path, "w") as f:
             f.write("\t".join(TSV_HEADERS) + "\n")
         return False
 
     gene_ids = _read_gene_ids_from_gtf(gtf_path)
-    print(f"  [ensembl-REST]  {cfg['name']}  — {len(gene_ids):,} genes from GTF")
-    print(f"    Querying {host} …")
+    total    = len(gene_ids)
+    print(f"  [ensembl-REST]  {cfg['name']}  — {total:,} genes from GTF")
+    print(f"    Querying {host} with {ENSEMBL_WORKERS} workers…")
 
-    rows    = []
-    errors  = 0
-    for i, gene_id in enumerate(gene_ids, 1):
-        features = _fetch_ensembl_protein_features(host, gene_id)
-        pfam_set     = set()
-        interpro_set = set()
-        for feat in features:
-            ipr = feat.get("interpro", "")
-            hit = feat.get("id", "")  # e.g. PF00001, PTHR12345, etc.
-            if ipr:
-                interpro_set.add(ipr)
-            if hit.startswith("PF"):
-                pfam_set.add(hit)
-        if pfam_set or interpro_set:
-            rows.append({
-                "gene_id":  gene_id,
-                "pfam":     list(pfam_set),
-                "interpro": list(interpro_set),
-                "go":       [],
-            })
-        elif not features:
-            errors += 1
-        if i % 100 == 0:
-            print(f"\r    {i}/{len(gene_ids)} genes queried…", end="", flush=True)
-        time.sleep(0.05)  # polite rate limiting
+    rows   = []
+    errors = 0
+    done   = 0
+    args   = [(host, gid) for gid in gene_ids]
+
+    with ThreadPoolExecutor(max_workers=ENSEMBL_WORKERS) as pool:
+        for result in pool.map(_query_ensembl_gene, args):
+            done += 1
+            if result["pfam"] or result["interpro"]:
+                rows.append(result)
+            elif not result["has_features"]:
+                errors += 1
+            if done % 200 == 0:
+                print(f"\r    {done}/{total} genes queried…", end="", flush=True)
 
     print(f"\r    {len(rows):,} genes with domain data  ({errors:,} no-response)  ")
     _write_tsv(out_path, rows)
@@ -711,17 +741,28 @@ def main() -> None:
     print(f"=== Gene-Intel domain download: {len(targets)} species → {BIOMART_DIR} ===\n")
 
     failed = []
-    for i, taxon_id in enumerate(targets, 1):
-        cfg = SPECIES[taxon_id]
-        print(f"[{i}/{len(targets)}] taxon={taxon_id}  ({cfg['name']})")
 
-        if args.dry_run:
+    if args.dry_run:
+        for i, taxon_id in enumerate(targets, 1):
+            cfg = SPECIES[taxon_id]
+            print(f"[{i}/{len(targets)}] taxon={taxon_id}  ({cfg['name']})")
             dry_run_species(taxon_id, cfg)
-        else:
+            print()
+    else:
+        # Run up to SPECIES_WORKERS species in parallel.
+        # Print a header when each starts; results arrive out of order.
+        print(f"Running up to {SPECIES_WORKERS} species in parallel.\n")
+
+        def _run_one(taxon_id: str) -> tuple[str, bool]:
+            cfg = SPECIES[taxon_id]
+            print(f"→ starting taxon={taxon_id}  ({cfg['name']})")
             ok = process_species(taxon_id, force=args.force)
-            if not ok:
-                failed.append(taxon_id)
-        print()
+            return taxon_id, ok
+
+        with ThreadPoolExecutor(max_workers=SPECIES_WORKERS) as pool:
+            for taxon_id, ok in pool.map(_run_one, targets):
+                if not ok:
+                    failed.append(taxon_id)
 
     if not args.dry_run:
         if failed:
