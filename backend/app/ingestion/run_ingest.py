@@ -447,13 +447,15 @@ def _preflight_check(args) -> None:
             if bm_filename:
                 _check(bm_path, f"[{taxon_id:>6}] {name:<18} biomart TSV")
 
-        # Biomart TSV is also checked even for FTP runs because GTF ingest
-        # (step=all) still tries to load it for initial domain seeding.
+        # When domain-source=ftp, biomart TSVs are OPTIONAL — FTP provides all
+        # domain data so a missing biomart just means 0 initial domains during
+        # GTF ingest, which is immediately corrected by the FTP pass.
+        # Warn but don't fail.
         if step == "all" and domain_source == "ftp":
             bm_filename = meta.get("biomart_filename") or ""
             bm_path     = os.path.join(settings.biomart_data_dir, bm_filename) if bm_filename else ""
-            if bm_filename:
-                _check(bm_path, f"[{taxon_id:>6}] {name:<18} biomart TSV")
+            if bm_filename and not (os.path.isfile(bm_path) and os.path.getsize(bm_path) > 0):
+                ok.append(f"  ~  [{taxon_id:>6}] {name:<18} {'biomart TSV':<25}  OPTIONAL (FTP will cover domains)")
 
     # ── idmapping files (for species that use them) ───────────────────────────
     _TAXON_IDMAP_CODES = {

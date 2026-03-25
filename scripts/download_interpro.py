@@ -197,11 +197,19 @@ _UNIPROT_SEMAPHORE = threading.Semaphore(6)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _http_get(url: str, timeout: int = 60) -> str:
+    import socket
     req = urllib.request.Request(url, headers={"User-Agent": "gene-intel/2.0"})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read().decode("utf-8")
+        except socket.gaierror as exc:
+            # DNS resolution failure — no point retrying
+            host = urllib.parse.urlparse(url).netloc
+            raise RuntimeError(
+                f"DNS resolution failed for '{host}'. "
+                f"Check network connectivity or try again later. ({exc})"
+            ) from exc
         except Exception as exc:
             if attempt == 2:
                 raise
