@@ -545,6 +545,14 @@ Examples:
         "--check", action="store_true",
         help="Dry-run pre-flight check: verify all data files exist without ingesting anything",
     )
+    parser.add_argument(
+        "--start-from", metavar="TAXON_ID", default=None,
+        help="Resume --all run: skip species that appear before TAXON_ID in the registry order",
+    )
+    parser.add_argument(
+        "--exclude-species", metavar="TAXON_ID", nargs="+", default=[],
+        help="Skip one or more taxon IDs (space-separated) even when --all is set",
+    )
 
     args = parser.parse_args()
 
@@ -571,6 +579,24 @@ Examples:
     init_schema(driver)
 
     taxon_ids = list(SPECIES_REGISTRY.keys()) if args.all else [args.species]
+
+    # --start-from: drop all species before the given taxon (inclusive of start)
+    if args.start_from and args.all:
+        start = str(args.start_from)
+        if start not in taxon_ids:
+            logger.error("--start-from %s is not in SPECIES_REGISTRY", start)
+            sys.exit(1)
+        idx = taxon_ids.index(start)
+        skipped = taxon_ids[:idx]
+        taxon_ids = taxon_ids[idx:]
+        if skipped:
+            logger.info("--start-from %s: skipping %d species: %s", start, len(skipped), skipped)
+
+    # --exclude-species: drop specific taxon IDs
+    if args.exclude_species:
+        exclude = set(str(t) for t in args.exclude_species)
+        taxon_ids = [t for t in taxon_ids if t not in exclude]
+        logger.info("--exclude-species: excluded %s", exclude)
 
     for taxon_id in taxon_ids:
         if args.step in ("gtf", "all"):
