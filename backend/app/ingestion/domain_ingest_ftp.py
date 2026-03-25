@@ -58,9 +58,11 @@ _TAXON_IDMAP: dict[int, str] = {
 }
 
 # Species where Swiss-Prot (reviewed) entries give good coverage
+# Plants and fungi (3702, 4530, 3218, 3055, 162425) are intentionally excluded:
+# their Swiss-Prot coverage is tiny. Use unreviewed (TrEMBL) for better yield.
 _REVIEWED_ONLY_TAXONS = {
     9606, 10090, 7955, 9031, 9598, 7227, 6239,
-    3702, 4530, 4932, 9913, 8665,
+    4932, 9913, 8665,
 }
 # Some species use a strain-level taxon in UniProt that differs from the GTF taxon
 _TAXON_REMAP = {
@@ -153,9 +155,14 @@ def build_taxon_uniprot_map(
         qualifier = "AND reviewed:true" if reviewed_only else ""
         query_str = f"(taxonomy_id:{api_taxon} {qualifier})".strip()
 
+        # Include all Ensembl division xref fields so plants and fungi are covered:
+        # xref_ensembl        → vertebrates
+        # xref_ensemblplants  → Arabidopsis, Rice, Moss, Algae
+        # xref_ensemblfungi   → Yeast, A. niger
+        # xref_ensemblmetazoa → Drosophila, C. elegans (backup; idmapping covers these)
         params: dict[str, Any] = {
             "query":  query_str,
-            "fields": "accession,xref_ensembl",
+            "fields": "accession,xref_ensembl,xref_ensemblplants,xref_ensemblfungi,xref_ensemblmetazoa",
             "format": "json",
             "size":   _PAGE_SIZE,
         }
@@ -188,17 +195,22 @@ def build_taxon_uniprot_map(
                 if not acc:
                     continue
 
-                # xref_ensembl is a list of cross-reference objects
+                # Collect Ensembl gene IDs from all division xrefs.
+                # UniProt uses different database names per division:
+                #   Ensembl / EnsemblPlants / EnsemblFungi / EnsemblMetazoa
+                # For vertebrates, gene ID is in a nested GeneId property.
+                # For plants/fungi, the xref id itself is the gene stable ID.
                 ensembl_ids = []
                 for xref in entry.get("uniProtKBCrossReferences", []):
-                    if xref.get("database") == "Ensembl":
-                        # gene cross-ref is nested; the gene stable ID is in the last property
-                        for prop in xref.get("properties", []):
-                            if prop.get("key") == "GeneId":
-                                ensembl_ids.append(prop["value"])
-                        # Also accept the id field directly (isoform-level entries)
-                        if xref.get("id"):
-                            ensembl_ids.append(xref["id"].split(".")[0])
+                    if not xref.get("database", "").startswith("Ensembl"):
+                        continue
+                    # Prefer the explicit GeneId property when present
+                    for prop in xref.get("properties", []):
+                        if prop.get("key") == "GeneId":
+                            ensembl_ids.append(prop["value"])
+                    # Fall back to the xref id itself (plants/fungi gene IDs)
+                    if xref.get("id"):
+                        ensembl_ids.append(xref["id"].split(".")[0])
 
                 for ensembl_gene_id in ensembl_ids:
                     if not ensembl_gene_id:

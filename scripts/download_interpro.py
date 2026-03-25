@@ -500,26 +500,40 @@ def _paginate_uniprot(query: str, fields: str) -> List[Dict]:
 
 
 def run_uniprot_taxon(cfg: Dict, out_path: str) -> bool:
-    taxon = cfg["taxon_id"]
-    print(f"  [taxon-REST]  {cfg['name']}  (taxon={taxon}, reviewed only)")
+    taxon       = cfg["taxon_id"]
+    # For plants/fungi fallback, fetch all proteins (not reviewed-only) and use
+    # the division-specific Ensembl xref field (xref_ensemblplants / xref_ensemblfungi).
+    ensembl_field = cfg.get("ensembl_field", "xref_ensembl")
+    reviewed_only = cfg.get("reviewed_only", True)
+    qualifier     = "AND reviewed:true" if reviewed_only else ""
+    label         = "reviewed only" if reviewed_only else "all proteins"
+    print(f"  [taxon-REST]  {cfg['name']}  (taxon={taxon}, {label})")
 
-    fields = "accession,xref_ensembl,xref_interpro,xref_pfam,go_id"
-    query  = f"organism_id:{taxon} AND reviewed:true"
+    fields   = f"accession,{ensembl_field},xref_interpro,xref_pfam,go_id"
+    all_rows = _fetch_taxon_pages(taxon, fields, reviewed_only=reviewed_only)
 
-    # Use paginated fetch
-    all_rows = _fetch_taxon_pages(taxon, fields)
+    # TSV column header for the Ensembl field depends on which xref was requested.
+    # UniProt TSV headers: "Ensembl" / "Ensembl Plants" / "Ensembl Fungi" / etc.
+    _ENSEMBL_TSV_KEYS = {
+        "xref_ensembl":         "Ensembl",
+        "xref_ensemblplants":   "Ensembl Plants",
+        "xref_ensemblfungi":    "Ensembl Fungi",
+        "xref_ensemblmetazoa":  "Ensembl Metazoa",
+    }
+    ensembl_tsv_key = _ENSEMBL_TSV_KEYS.get(ensembl_field, "Ensembl")
 
     rows = []
     skipped = 0
     for rec in all_rows:
-        # Convert transcript IDs to gene IDs
-        ensembl_raw = rec.get("Ensembl", "").strip()
+        ensembl_raw = rec.get(ensembl_tsv_key, "").strip()
         gene_ids    = set()
-        for tid in ensembl_raw.split(";"):
-            tid = tid.strip()
-            if not tid:
+        for raw_id in ensembl_raw.split(";"):
+            raw_id = raw_id.strip()
+            if not raw_id:
                 continue
-            gid = _transcript_to_gene_id(tid)
+            # Try transcript→gene conversion (works for ENS* IDs).
+            # If it returns None (plant/fungi IDs like AT1G01010, OS01G...), use the ID directly.
+            gid = _transcript_to_gene_id(raw_id) or raw_id.split(".")[0]
             if gid:
                 gene_ids.add(gid)
 
@@ -540,11 +554,12 @@ def run_uniprot_taxon(cfg: Dict, out_path: str) -> bool:
     return True
 
 
-def _fetch_taxon_pages(taxon: str, fields: str) -> List[Dict]:
+def _fetch_taxon_pages(taxon: str, fields: str, reviewed_only: bool = True) -> List[Dict]:
     """Paginate through all pages for a taxon query, return all rows."""
     results = []
-    query   = f"organism_id:{taxon} AND reviewed:true"
-    params  = urllib.parse.urlencode({
+    qualifier = "AND reviewed:true" if reviewed_only else ""
+    query     = f"organism_id:{taxon} {qualifier}".strip()
+    params    = urllib.parse.urlencode({
         "query": query, "fields": fields,
         "format": "tsv", "size": 500,
     })
@@ -654,6 +669,30 @@ def run_ensembl_rest(cfg: Dict, out_path: str) -> bool:
         print(f"  [ensembl-REST]  {cfg['name']}  — GTF not found: {gtf_path}")
         print(f"    Skipping. Download the GTF first, then re-run.")
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write("\t".join(TSV_HEADERS) + "\n")
+        return False
+
+    # Check host reachability before spinning up 16 workers
+    try:
+        _http_get(f"{host}/info/ping?content-type=application/json", timeout=10)
+    except RuntimeError as exc:
+        # DNS failure — Plants/Fungi REST is unreachable
+        print(f"  [ensembl-REST]  {cfg['name']}  — {host} unreachable: {exc}")
+        print(f"    Falling back to UniProt taxon query (reduced coverage).")
+        taxon_id = next(
+            (tid for tid, c in SPECIES.items() if c is cfg), None
+        )
+        if taxon_id:
+            fallback_cfg = {
+                "name":         cfg["name"],
+                "strategy":     "uniprot_taxon",
+                "taxon_id":     taxon_id,
+                "ensembl_field": "xref_ensemblplants",
+                "out_file":     cfg.get("out_file", ""),
+            }
+            return run_uniprot_taxon(fallback_cfg, out_path)
+        print(f"    Could not determine taxon_id for fallback — writing empty TSV.")
         with open(out_path, "w") as f:
             f.write("\t".join(TSV_HEADERS) + "\n")
         return False
