@@ -95,23 +95,57 @@ def run_audit(driver) -> None:
         for row in rel_totals:
             print(f"  {row['rel']:<22} {row['cnt']:>10,}")
 
-        # ── 3. Per-species breakdown ──────────────────────────────────────────
-        species_rows = q(s, """
+        # ── 3. Per-species breakdown (one query per species to stay within memory limits) ──
+        species_list = q(s, """
             MATCH (sp:Species)
-            OPTIONAL MATCH (sp)-[:HAS_GENE]->(g:Gene)
-            OPTIONAL MATCH (g)-[:HAS_TRANSCRIPT]->(t:Transcript)
-            OPTIONAL MATCH (t)-[:HAS_FEATURE]->(f:Feature)
-            OPTIONAL MATCH (g)-[:HAS_DOMAIN]->(d:Domain)
-            RETURN
-                sp.taxon_id     AS taxon,
-                sp.common_name  AS name,
-                sp.assembly     AS assembly,
-                count(DISTINCT g) AS genes,
-                count(DISTINCT t) AS transcripts,
-                count(DISTINCT f) AS features,
-                count(DISTINCT d) AS domains
-            ORDER BY genes DESC
+            RETURN sp.taxon_id AS taxon, sp.common_name AS name, sp.assembly AS assembly
+            ORDER BY sp.taxon_id
         """)
+
+        species_rows = []
+        for sp in species_list:
+            taxon_id = sp["taxon"]
+            # Count genes + domain coverage first (cheap)
+            gd = q(s, """
+                MATCH (sp:Species {taxon_id: $tid})-[:HAS_GENE]->(g:Gene)
+                RETURN count(g) AS genes
+            """, tid=taxon_id)[0]
+            genes = gd["genes"] or 0
+
+            # Count transcripts
+            tx_row = q(s, """
+                MATCH (sp:Species {taxon_id: $tid})-[:HAS_GENE]->(g:Gene)-[:HAS_TRANSCRIPT]->(t:Transcript)
+                RETURN count(t) AS transcripts
+            """, tid=taxon_id)[0]
+
+            # Count features (expensive — skip for large species if memory is an issue)
+            try:
+                feat_row = q(s, """
+                    MATCH (sp:Species {taxon_id: $tid})-[:HAS_GENE]->(g:Gene)
+                          -[:HAS_TRANSCRIPT]->(t:Transcript)-[:HAS_FEATURE]->(f:Feature)
+                    RETURN count(f) AS features
+                """, tid=taxon_id)[0]
+                feats = feat_row["features"] or 0
+            except Exception:
+                feats = -1  # mark as unknown if memory error
+
+            # Count distinct domains
+            dom_row = q(s, """
+                MATCH (sp:Species {taxon_id: $tid})-[:HAS_GENE]->(g:Gene)-[:HAS_DOMAIN]->(d:Domain)
+                RETURN count(DISTINCT d) AS domains
+            """, tid=taxon_id)[0]
+
+            species_rows.append({
+                "taxon":       taxon_id,
+                "name":        sp["name"],
+                "assembly":    sp["assembly"],
+                "genes":       genes,
+                "transcripts": tx_row["transcripts"] or 0,
+                "features":    feats,
+                "domains":     dom_row["domains"] or 0,
+            })
+
+        species_rows.sort(key=lambda r: r["genes"], reverse=True)
 
         print("\n── Per-species breakdown ────────────────────────────────────────────────────────────")
         header = f"  {'Taxon':<8} {'Name':<22} {'Genes':>7} {'Tx':>7} {'Feat':>7} {'Domains':>8} {'Dom%':>6}  Assembly"
@@ -126,10 +160,11 @@ def run_audit(driver) -> None:
             name       = row["name"] or "?"
             genes      = row["genes"] or 0
             txs        = row["transcripts"] or 0
-            feats      = row["features"] or 0
+            feats      = row["features"]  # may be -1 if memory error during count
             domains    = row["domains"] or 0
             assembly   = row["assembly"] or "?"
             coverage   = (domains / genes * 100) if genes > 0 else 0.0
+            feats_str  = f"{feats:>7,}" if feats >= 0 else "      ?"
 
             ingested_taxons.add(taxon)
 
@@ -146,7 +181,7 @@ def run_audit(driver) -> None:
 
             print(
                 f"{flag}{'%-8s' % taxon} {'%-22s' % name} "
-                f"{genes:>7,} {txs:>7,} {feats:>7,} {domains:>8,} {coverage:>5.1f}%  {assembly}"
+                f"{genes:>7,} {txs:>7,} {feats_str} {domains:>8,} {coverage:>5.1f}%  {assembly}"
             )
 
         # ── 4. Missing species ────────────────────────────────────────────────
