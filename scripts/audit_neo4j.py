@@ -100,7 +100,7 @@ def run_audit(driver) -> None:
             MATCH (sp:Species)
             OPTIONAL MATCH (sp)-[:HAS_GENE]->(g:Gene)
             OPTIONAL MATCH (g)-[:HAS_TRANSCRIPT]->(t:Transcript)
-            OPTIONAL MATCH (g)-[:HAS_FEATURE]->(f:Feature)
+            OPTIONAL MATCH (t)-[:HAS_FEATURE]->(f:Feature)
             OPTIONAL MATCH (g)-[:HAS_DOMAIN]->(d:Domain)
             RETURN
                 sp.taxon_id     AS taxon,
