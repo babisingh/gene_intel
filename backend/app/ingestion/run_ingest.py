@@ -392,6 +392,94 @@ def ingest_species(taxon_id: str, driver) -> None:
     logger.info("=== Done: %s ===", species_meta["common_name"])
 
 
+def _preflight_check(args) -> None:
+    """
+    Verify all data files needed for the requested run exist on disk.
+    Prints a ✓/✗ table and exits non-zero if anything is missing.
+    """
+    targets = list(SPECIES_REGISTRY.keys()) if args.all else ([args.species] if args.species else [])
+    if not targets:
+        print("Specify --all or --species <taxon_id> to check.")
+        sys.exit(1)
+
+    domain_source = args.domain_source
+    ftp_file      = getattr(args, "ftp_file", None)
+    step          = getattr(args, "step", "all")
+
+    missing: list[str] = []
+    ok:      list[str] = []
+
+    def _check(path: str, label: str) -> bool:
+        if path and os.path.exists(path) and os.path.getsize(path) > 0:
+            size_mb = os.path.getsize(path) / 1_048_576
+            ok.append(f"  ✓  {label:<45}  {size_mb:>8.1f} MB  {path}")
+            return True
+        else:
+            missing.append(f"  ✗  {label:<45}  MISSING      {path or '(not specified)'}")
+            return False
+
+    print(f"\nPre-flight check — {len(targets)} species  "
+          f"step={step}  domain-source={domain_source or 'auto'}\n")
+
+    # ── FTP file ──────────────────────────────────────────────────────────────
+    if domain_source == "ftp" or step in ("domains", "all"):
+        if domain_source == "ftp":
+            _check(ftp_file, "protein2ipr.dat.gz  (FTP)")
+
+    # ── Per-species files ─────────────────────────────────────────────────────
+    for taxon_id in targets:
+        meta = SPECIES_REGISTRY.get(taxon_id, {})
+        name = meta.get("common_name", taxon_id)
+
+        # GTF file
+        if step in ("gtf", "all"):
+            gtf_filename = meta.get("gtf_filename", "")
+            gtf_path     = os.path.join(settings.gtf_data_dir, gtf_filename) if gtf_filename else ""
+            _check(gtf_path, f"[{taxon_id:>6}] {name:<18} GTF")
+
+        # Biomart TSV (used by GTF ingest step, not FTP domain ingest)
+        if step in ("gtf", "all") and domain_source != "ftp":
+            bm_filename = meta.get("biomart_filename") or ""
+            bm_path     = os.path.join(settings.biomart_data_dir, bm_filename) if bm_filename else ""
+            if bm_filename:
+                _check(bm_path, f"[{taxon_id:>6}] {name:<18} biomart TSV")
+
+        # Biomart TSV is also checked even for FTP runs because GTF ingest
+        # (step=all) still tries to load it for initial domain seeding.
+        if step == "all" and domain_source == "ftp":
+            bm_filename = meta.get("biomart_filename") or ""
+            bm_path     = os.path.join(settings.biomart_data_dir, bm_filename) if bm_filename else ""
+            if bm_filename:
+                _check(bm_path, f"[{taxon_id:>6}] {name:<18} biomart TSV")
+
+    # ── idmapping files (for species that use them) ───────────────────────────
+    _TAXON_IDMAP_CODES = {
+        "9606": "HUMAN_9606",   "10090": "MOUSE_10090", "7955": "DANRE_7955",
+        "9031": "CHICK_9031",   "7227":  "DROME_7227",  "6239": "CAEEL_6239",
+        "3702": "ARATH_3702",   "4932":  "YEAST_559292",
+    }
+    interpro_dir = os.environ.get("INTERPRO_DATA_DIR", "./data/interpro")
+    for taxon_id in targets:
+        code = _TAXON_IDMAP_CODES.get(taxon_id)
+        if code:
+            idmap_path = os.path.join(interpro_dir, f"{code}_idmapping.dat.gz")
+            meta = SPECIES_REGISTRY.get(taxon_id, {})
+            _check(idmap_path, f"[{taxon_id:>6}] {meta.get('common_name', taxon_id):<18} idmapping")
+
+    # ── Print results ─────────────────────────────────────────────────────────
+    if ok:
+        print("Found:")
+        print("\n".join(ok))
+    if missing:
+        print("\nMissing:")
+        print("\n".join(missing))
+
+    print(f"\n{'✓ All files present — ready to ingest.' if not missing else f'✗  {len(missing)} file(s) missing — resolve before running.'}")
+
+    if missing:
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Gene-Intel ingestion pipeline",
@@ -448,8 +536,17 @@ Examples:
         "--report", action="store_true",
         help="Print domain coverage report (use with 'domains' command)",
     )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Dry-run pre-flight check: verify all data files exist without ingesting anything",
+    )
 
     args = parser.parse_args()
+
+    # Handle: --check (pre-flight file existence check)
+    if args.check:
+        _preflight_check(args)
+        return
 
     # Handle: python -m ... domains --report
     if args.command == "domains" and args.report:
