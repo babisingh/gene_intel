@@ -410,10 +410,13 @@ def _preflight_check(args) -> None:
     ok:      list[str] = []
 
     def _check(path: str, label: str) -> bool:
-        if path and os.path.exists(path) and os.path.getsize(path) > 0:
+        if path and os.path.isfile(path) and os.path.getsize(path) > 0:
             size_mb = os.path.getsize(path) / 1_048_576
             ok.append(f"  ✓  {label:<45}  {size_mb:>8.1f} MB  {path}")
             return True
+        elif path and os.path.isdir(path):
+            missing.append(f"  ✗  {label:<45}  PATH IS A DIRECTORY  {path}")
+            return False
         else:
             missing.append(f"  ✗  {label:<45}  MISSING      {path or '(not specified)'}")
             return False
