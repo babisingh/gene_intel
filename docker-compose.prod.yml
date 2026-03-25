@@ -1,0 +1,61 @@
+# ── Gene-Intel — Production overrides ────────────────────────────────────────
+#
+# Usage (merge with base compose file):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#       --env-file .env.docker up -d
+#
+# What this adds over the base:
+#   - Nginx reverse proxy on :80 and :443
+#   - Neo4j Bolt port removed from public network (internal only)
+#   - API port removed from public network (nginx handles it)
+#   - Certbot for Let's Encrypt SSL
+#
+# First-time SSL setup:
+#   1. Point your domain A record at the VPS IP
+#   2. Start with HTTP only first: comment out the HTTPS server block in nginx.conf
+#   3. Run: docker compose ... run --rm certbot certonly --webroot \
+#              --webroot-path=/var/www/certbot -d yourdomain.com
+#   4. Uncomment the HTTPS block and reload nginx
+
+services:
+
+  neo4j:
+    # Remove host-exposed ports — Neo4j is internal-only in production
+    # Bolt is reachable by other containers via bolt://neo4j:7687
+    ports: []
+
+  api:
+    # Remove host-exposed port — nginx proxies to api:8000 internally
+    ports: []
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: gene_intel_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Certbot — run once to issue cert, then renew via cron
+  # docker compose ... run --rm certbot renew
+  certbot:
+    image: certbot/certbot:latest
+    container_name: gene_intel_certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Manual invocation only — not a long-running service
+    profiles: ["certbot"]
+
+volumes:
+  certbot_certs:
+    driver: local
+  certbot_www:
+    driver: local

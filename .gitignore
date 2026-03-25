@@ -28,6 +28,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.docker.example
 
 # Data files (large, gitignored)
 data/gtf/

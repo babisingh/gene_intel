@@ -1,0 +1,94 @@
+# ── Gene-Intel — Local / Self-Hosted Docker Compose ───────────────────────────
+#
+# Architecture:
+#   ┌─────────────────────────────────────────────────────────────┐
+#   │  Docker Compose (local dev or VPS)                          │
+#   │                                                             │
+#   │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
+#   │  │   neo4j      │    │     api      │    │   (nginx)    │  │
+#   │  │  Community   │◀───│   FastAPI    │    │  prod only   │  │
+#   │  │  :7474 :7687 │    │   :8000      │    │  see .prod   │  │
+#   │  └──────────────┘    └──────────────┘    └──────────────┘  │
+#   └─────────────────────────────────────────────────────────────┘
+#         ▲ exposed to host for local ingest scripts
+#
+# Quick start:
+#   cp .env.docker.example .env.docker
+#   # fill in NEO4J_PASSWORD and ANTHROPIC_API_KEY
+#   docker compose --env-file .env.docker up -d
+#
+# Run ingest from host (Neo4j on localhost:7687):
+#   NEO4J_URI=bolt://localhost:7687 \
+#   NEO4J_PASSWORD=<your_password> \
+#   python -m app.ingestion.run_ingest --all --domain-source ftp \
+#       --ftp-file data/interpro_ftp/protein2ipr.dat.gz
+#
+# See docker-compose.prod.yml for public deployment with nginx + TLS.
+
+services:
+
+  # ── Neo4j Community (graph database, no storage limits) ─────────────────────
+  neo4j:
+    image: neo4j:5-community
+    container_name: gene_intel_neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Neo4j Browser UI  — open http://localhost:7474
+      - "7687:7687"   # Bolt (for host-side ingest scripts)
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD}"
+      # APOC plugin — used by audit script and optional batch deletes
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*"
+      # Memory — tune for your machine (total heap + pagecache < 60% RAM)
+      NEO4J_server_memory_heap_initial__size: "1G"
+      NEO4J_server_memory_heap_max__size: "4G"
+      NEO4J_server_memory_pagecache__size: "2G"
+      # Raise transaction memory cap (default 256MB is too low for audit queries)
+      NEO4J_dbms_memory_transaction_total_max: "1G"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # ── FastAPI + React frontend ─────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gene_intel_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Internal Docker DNS — api container reaches neo4j by service name
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-claude-sonnet-4-6}"
+      AGENT_LLM_MAX_TOKENS: "${AGENT_LLM_MAX_TOKENS:-2048}"
+      APP_ENV: "${APP_ENV:-production}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8000}"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
