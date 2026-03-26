@@ -89,6 +89,11 @@ def neo4j_node(state: SearchState, driver) -> SearchState:
 
 def agent_c_node(state: SearchState) -> SearchState:
     """Node 3: Generate explanation for results."""
+    # If upstream failed (no results + preserved error), skip explanation so
+    # the error surfaces to the API caller instead of being silently swallowed.
+    if not state.get("raw_results") and state.get("error"):
+        return state
+
     try:
         explanation = explain_results(
             nl_query=state["nl_query"],

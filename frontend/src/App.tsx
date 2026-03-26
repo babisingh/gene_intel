@@ -9,6 +9,7 @@
  *   - Error/empty state overlays
  */
 
+import { useQuery } from '@tanstack/react-query'
 import { useSearchStore } from './store/searchStore'
 import { SearchBar } from './components/SearchBar/SearchBar'
 import { GraphView } from './components/GraphView/GraphView'
@@ -16,9 +17,17 @@ import { GraphControls } from './components/GraphView/GraphControls'
 import { AnalysisDrawer } from './components/AnalysisDrawer/AnalysisDrawer'
 import { PersonaSelector } from './components/PersonaSelector'
 import { IngestionStatus } from './components/IngestionStatus'
+import { MarkdownText } from './components/MarkdownText'
+import { api } from './api/client'
 
 export default function App() {
   const { results, isLoading, error } = useSearchStore()
+  const { data: speciesList } = useQuery({
+    queryKey: ['species'],
+    queryFn: api.species,
+    staleTime: Infinity,
+  })
+  const speciesCount = speciesList?.length ?? 17
 
   const nodes = results?.nodes ?? []
   const edges = results?.edges ?? []
@@ -30,7 +39,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span className="text-lg font-bold text-blue-400 tracking-tight">Gene-Intel</span>
           <span className="text-xs text-gray-500 hidden sm:block">
-            Discovery Engine — 15 species
+            Discovery Engine — {speciesCount} species
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -53,8 +62,8 @@ export default function App() {
 
       {/* Results explanation (non-researcher modes) */}
       {results?.explanation && (
-        <div className="mx-6 mt-4 px-4 py-3 bg-blue-900/20 border border-blue-800/50 rounded-lg text-sm text-gray-300 leading-relaxed">
-          {results.explanation}
+        <div className="mx-6 mt-4 px-4 py-3 bg-blue-900/20 border border-blue-800/50 rounded-lg text-sm text-gray-300 leading-relaxed overflow-y-auto max-h-64">
+          <MarkdownText>{results.explanation}</MarkdownText>
         </div>
       )}
 
@@ -68,7 +77,7 @@ export default function App() {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
               <span className="text-gray-400 text-sm">
-                Searching {results === null ? 'across 15 species' : ''}…
+                Searching {results === null ? `across ${speciesCount} species` : ''}…
               </span>
             </div>
           </div>
