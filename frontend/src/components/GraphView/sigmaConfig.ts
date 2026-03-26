@@ -17,17 +17,19 @@ export const SPECIES_COLORS: Record<string, string> = {
   '10090':  '#E8834C',  // Mouse — orange
   '7955':   '#4CE8A0',  // Zebrafish — green
   '9031':   '#E8D44C',  // Chicken — yellow
-  '8364':   '#C44CE8',  // Xenopus tropicalis — purple
+  '8364':   '#C44CE8',  // Xenopus — purple
   '9598':   '#4CBDE8',  // Chimp — light blue
-  '7227':   '#E84C4C',  // Drosophila — red
-  '6239':   '#E8B44C',  // C. elegans — amber
+  '7227':   '#E84C4C',  // Fruit fly — red
+  '6239':   '#E8B44C',  // Roundworm — amber
   '3702':   '#4CE860',  // Arabidopsis — bright green
   '4530':   '#7BE84C',  // Rice — lime
   '3218':   '#4CE8D4',  // Moss — teal
-  '3055':   '#1AB87A',  // Chlamydomonas — dark teal
-  '162425': '#B84C4C',  // Aspergillus — dark red
+  '3055':   '#1AB87A',  // Green alga — dark teal
+  '162425': '#B84C4C',  // Black mould — dark red
   '4932':   '#E8774C',  // Yeast — salmon
   '511145': '#888888',  // E. coli — grey
+  '9913':   '#D4A84C',  // Cow — gold
+  '8665':   '#A04CE8',  // King cobra — violet
 }
 
 export const DEFAULT_NODE_COLOR = '#6B7280'
