@@ -100,6 +100,12 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
         }
     cypher = response.content[0].text.strip()
 
+    # Strip markdown code fences — models often wrap Cypher in ```cypher ... ```
+    # despite being instructed not to.
+    if cypher.startswith("```"):
+        cypher = cypher.split("\n", 1)[-1]          # drop first ```cypher line
+        cypher = cypher.rsplit("```", 1)[0].strip()  # drop trailing ```
+
     # Validate before returning
     validation = validate_cypher(cypher)
     if not validation["valid"]:
