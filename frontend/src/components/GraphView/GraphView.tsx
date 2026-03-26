@@ -68,8 +68,8 @@ export function GraphView({ nodes, edges }: GraphViewProps) {
       }
     })
 
-    // Apply circular layout for initial positioning
-    circular.assign(graph, { scale: 1 })
+    // Apply circular layout — scale 100 gives Sigma enough coordinate range to work with
+    circular.assign(graph, { scale: 100 })
 
     return graph
   }, [nodes, edges])
@@ -101,7 +101,15 @@ export function GraphView({ nodes, edges }: GraphViewProps) {
       }
     })
 
+    // Fit camera to graph after a short delay to ensure container is sized.
+    // Sigma may initialise before the flex layout calculates the container height.
+    const fitTimeout = setTimeout(() => {
+      sigma.refresh()
+      sigma.getCamera().animatedReset()
+    }, 100)
+
     return () => {
+      clearTimeout(fitTimeout)
       sigma.kill()
       sigmaRef.current = null
     }
