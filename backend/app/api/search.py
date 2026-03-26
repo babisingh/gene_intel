@@ -52,7 +52,10 @@ async def search(
         )
     except Exception as exc:
         logger.error("Search pipeline error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        # Surface LLM/workflow failures as 422 (bad request) not 500 (server error)
+        detail = str(exc)
+        status = 422 if any(k in detail.lower() for k in ("refusal", "cypher", "llm", "query")) else 500
+        raise HTTPException(status_code=status, detail=detail)
 
     if not state.get("success") and state.get("error"):
         raise HTTPException(status_code=422, detail=state["error"])

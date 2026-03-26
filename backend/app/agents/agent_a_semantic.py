@@ -86,8 +86,18 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    if not response.content:
-        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
+    if response.stop_reason == "refusal" or not response.content:
+        # Model refused or returned empty — return soft failure so the workflow
+        # can surface a user-friendly message rather than a 500.
+        return {
+            "cypher": None,
+            "success": False,
+            "error": (
+                "The query couldn't be converted to a graph search. "
+                "Try rephrasing — for example: "
+                "'show me BRCA1 across species' or 'find protein kinases in human'."
+            ),
+        }
     cypher = response.content[0].text.strip()
 
     # Validate before returning
