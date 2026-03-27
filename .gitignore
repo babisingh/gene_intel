@@ -34,6 +34,7 @@ htmlcov/
 data/gtf/
 data/biomart/
 data/desc_cache.db
+backend/data/desc_cache.db
 
 # Node
 frontend/node_modules/
