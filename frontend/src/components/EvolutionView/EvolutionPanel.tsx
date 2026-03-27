@@ -3,7 +3,7 @@
  *
  * Tabs:
  *   Tree      → PhyloTreeView SVG with domain gain/loss overlays
- *   Domains   → DomainAgeChart (horizontal bars by age)
+ *   Domains   → DomainPresenceMatrix (species × domain presence grid)
  *   Narrative → LLM evolutionary story
  *   Info      → Raw data / calculations / methodology
  */
@@ -12,7 +12,7 @@ import { useState } from 'react'
 import { usePaneContext } from '../../contexts/PaneContext'
 import { useEvoSearch } from '../../hooks/useEvoSearch'
 import { PhyloTreeView } from './PhyloTreeView'
-import { DomainAgeChart } from './DomainAgeChart'
+import { DomainPresenceMatrix } from './DomainAgeChart'
 import { NarrativeCard } from './NarrativeCard'
 import { InfoPanel } from './InfoPanel'
 import type { EvoTab } from '../../store/paneStore'
@@ -212,9 +212,10 @@ export function EvolutionPanel() {
               </div>
             )}
             {evoTab === 'domains' && (
-              <div className="p-3">
-                <DomainAgeChart
+              <div className="p-3 overflow-auto">
+                <DomainPresenceMatrix
                   domainAges={evoData.domain_ages}
+                  speciesMeta={evoData.species_meta}
                   selectedDomain={selectedDomain}
                   onDomainSelect={setSelectedDomain}
                 />

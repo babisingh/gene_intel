@@ -155,9 +155,15 @@ export function InfoPanel({ data }: Props) {
           <div className="space-y-1">
             {gainEvents.map((ev, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
-                <span className="text-green-500 font-bold mt-0.5">+</span>
+                <span className="text-green-500 font-bold mt-0.5 flex-shrink-0">+</span>
                 <span className="text-gray-300">
-                  <span className="text-green-400 font-mono">{ev.domain_id}</span>
+                  {ev.description
+                    ? <span className="text-green-400">{ev.description}</span>
+                    : <span className="text-green-400 font-mono">{ev.display_id || ev.domain_id}</span>
+                  }
+                  {ev.description && (
+                    <span className="text-gray-600 font-mono text-[10px] ml-1">({ev.display_id || ev.domain_id})</span>
+                  )}
                   {' '}gained at{' '}
                   <span className="text-blue-300">{ev.node_label}</span>
                   {ev.time_mya > 0 && <span className="text-gray-500"> (~{ev.time_mya} Mya)</span>}
@@ -166,9 +172,15 @@ export function InfoPanel({ data }: Props) {
             ))}
             {lossEvents.map((ev, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
-                <span className="text-red-500 font-bold mt-0.5">−</span>
+                <span className="text-red-500 font-bold mt-0.5 flex-shrink-0">−</span>
                 <span className="text-gray-300">
-                  <span className="text-red-400 font-mono">{ev.domain_id}</span>
+                  {ev.description
+                    ? <span className="text-red-400">{ev.description}</span>
+                    : <span className="text-red-400 font-mono">{ev.display_id || ev.domain_id}</span>
+                  }
+                  {ev.description && (
+                    <span className="text-gray-600 font-mono text-[10px] ml-1">({ev.display_id || ev.domain_id})</span>
+                  )}
                   {' '}lost in{' '}
                   <span className="text-orange-300">{ev.node_label}</span>
                   {ev.species && ev.species.length > 0 && (

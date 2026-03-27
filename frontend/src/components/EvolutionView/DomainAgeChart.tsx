@@ -1,45 +1,74 @@
 /**
- * DomainAgeChart — horizontal bar chart showing when each domain in the gene family
- * first appeared. Bars extend from domain origin (Mya) to the present.
- * Coloured by age tier.
+ * DomainPresenceMatrix — replaces the bar chart with a readable grid.
+ *
+ * Layout:
+ *   - Rows: domains, grouped by age tier, labelled with human-readable
+ *     description (source badge + clean accession + description text)
+ *   - Columns: 17 species in phylogenetic order (human → E. coli)
+ *   - Cell: filled square (coloured by source) = domain present,
+ *           empty dark square = domain absent
+ *
+ * Clicking a row selects that domain for tree filtering.
+ * Domain IDs are shown as tooltips/secondary text, never as the primary label.
  */
 
 import { useState } from 'react'
-import type { DomainAge } from '../../types/evolution'
+import type { DomainAge, SpeciesMeta } from '../../types/evolution'
 
-const MAX_TIME = 3500
+// Phylogenetic order: human (most derived) → E. coli (most ancestral)
+const PHYLO_ORDER = [
+  '9606', '9598', '10090', '9913', '9031', '8665',
+  '8364', '7955', '7227', '6239', '3702', '4530',
+  '3218', '3055', '162425', '4932', '511145',
+]
 
-// Age tier → color
-const TIER_COLORS: Record<string, string> = {
-  'Ancient (>3.5 Gya)':    '#dc2626',  // red
-  'Eukaryotic (~1.5 Gya)': '#ea580c',  // orange
-  'Metazoan (~700 Mya)':   '#ca8a04',  // amber
-  'Vertebrate (~500 Mya)': '#16a34a',  // green
-  'Tetrapod (~360 Mya)':   '#0d9488',  // teal
-  'Amniote (~300 Mya)':    '#0284c7',  // sky
-  'Mammalian (~170 Mya)':  '#7c3aed',  // violet
-  'Primate (~6 Mya)':      '#c026d3',  // fuchsia
-  'Unknown origin':        '#475569',  // slate
-  'Unknown':               '#475569',
+const SPECIES_ABBR: Record<string, string> = {
+  '9606': 'Hum', '9598': 'Chi', '10090': 'Mou', '9913': 'Cow',
+  '9031': 'Chk', '8665': 'Cob', '8364': 'Frg', '7955': 'Zfh',
+  '7227': 'Fly', '6239': 'Wrm', '3702': 'Ara', '4530': 'Ric',
+  '3218': 'Mos', '3055': 'Alg', '162425': 'Asp', '4932': 'Yst',
+  '511145': 'Eco',
 }
 
-function barColor(label: string): string {
-  return TIER_COLORS[label] ?? '#475569'
+// Source → fill colour classes for present cells
+const SOURCE_CELL: Record<string, string> = {
+  Pfam: 'bg-blue-600',
+  GO: 'bg-amber-500',
+  InterPro: 'bg-teal-500',
+  KEGG: 'bg-orange-500',
+  PANTHER: 'bg-pink-500',
+  Unknown: 'bg-purple-600',
+}
+const SOURCE_BADGE: Record<string, string> = {
+  Pfam: 'bg-blue-900/60 text-blue-300 border-blue-800',
+  GO: 'bg-amber-900/60 text-amber-300 border-amber-800',
+  InterPro: 'bg-teal-900/60 text-teal-300 border-teal-800',
+  KEGG: 'bg-orange-900/60 text-orange-300 border-orange-800',
+  PANTHER: 'bg-pink-900/60 text-pink-300 border-pink-800',
+  Unknown: 'bg-gray-800 text-gray-400 border-gray-700',
 }
 
-// Log-scaled x position (0 = left, 1 = right = present)
-function xFrac(time_mya: number): number {
-  if (time_mya <= 0) return 1
-  return 1 - Math.log10(time_mya + 1) / Math.log10(MAX_TIME + 1)
+// Age tier → section header style
+const TIER_HEADER: Record<string, string> = {
+  'Ancient (>3.5 Gya)':    'bg-red-950/60 text-red-400 border-red-900',
+  'Eukaryotic (~1.5 Gya)': 'bg-orange-950/60 text-orange-400 border-orange-900',
+  'Metazoan (~700 Mya)':   'bg-amber-950/60 text-amber-400 border-amber-900',
+  'Vertebrate (~500 Mya)': 'bg-green-950/60 text-green-400 border-green-900',
+  'Tetrapod (~360 Mya)':   'bg-teal-950/60 text-teal-400 border-teal-900',
+  'Amniote (~300 Mya)':    'bg-sky-950/60 text-sky-400 border-sky-900',
+  'Mammalian (~170 Mya)':  'bg-violet-950/60 text-violet-400 border-violet-900',
+  'Primate (~6 Mya)':      'bg-fuchsia-950/60 text-fuchsia-400 border-fuchsia-900',
+  'Unknown origin':        'bg-gray-900 text-gray-500 border-gray-800',
 }
 
 interface Props {
   domainAges: DomainAge[]
+  speciesMeta: Record<string, SpeciesMeta>
   onDomainSelect: (domain: string | null) => void
   selectedDomain: string | null
 }
 
-export function DomainAgeChart({ domainAges, onDomainSelect, selectedDomain }: Props) {
+export function DomainPresenceMatrix({ domainAges, speciesMeta, onDomainSelect, selectedDomain }: Props) {
   const [hovered, setHovered] = useState<string | null>(null)
 
   if (!domainAges.length) {
@@ -50,134 +79,140 @@ export function DomainAgeChart({ domainAges, onDomainSelect, selectedDomain }: P
     )
   }
 
-  const BAR_H = 22
-  const LABEL_W = 160
-  const CHART_W = 480
-  const ROW_GAP = 6
-  const TOTAL_H = domainAges.length * (BAR_H + ROW_GAP) + 40
-
-  // Time axis ticks
-  const ticks = [3500, 1500, 700, 430, 300, 87, 6, 0]
-  const tickLabels: Record<number, string> = {
-    3500: '3.5Ga', 1500: '1.5Ga', 700: '700M', 430: '430M',
-    300: '300M', 87: '87M', 6: '6M', 0: 'Now',
+  // Group domains by age tier label
+  const grouped: Record<string, DomainAge[]> = {}
+  for (const da of domainAges) {
+    const tier = da.age.label
+    if (!grouped[tier]) grouped[tier] = []
+    grouped[tier].push(da)
   }
+
+  // Ordered tier labels (most ancient first)
+  const tierOrder = [
+    'Ancient (>3.5 Gya)', 'Eukaryotic (~1.5 Gya)', 'Metazoan (~700 Mya)',
+    'Vertebrate (~500 Mya)', 'Tetrapod (~360 Mya)', 'Amniote (~300 Mya)',
+    'Mammalian (~170 Mya)', 'Primate (~6 Mya)', 'Unknown origin',
+  ]
+  const tiers = tierOrder.filter((t) => grouped[t])
 
   return (
     <div className="overflow-auto">
-      <svg
-        viewBox={`0 0 ${LABEL_W + CHART_W + 20} ${TOTAL_H}`}
-        width="100%"
-        className="font-mono"
-      >
-        <rect width={LABEL_W + CHART_W + 20} height={TOTAL_H} fill="#0f172a" rx={6} />
+      <table className="w-full text-xs border-collapse min-w-max">
+        <thead>
+          <tr>
+            {/* Domain label column header */}
+            <th className="sticky left-0 bg-gray-900 z-10 text-left pb-2 pr-3 min-w-[260px]">
+              <span className="text-gray-500 font-normal">Domain (description · accession)</span>
+            </th>
+            {/* Species column headers */}
+            {PHYLO_ORDER.map((taxon) => (
+              <th key={taxon} className="pb-2 px-0.5 font-normal" title={speciesMeta[taxon]?.common ?? taxon}>
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="text-gray-500" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 9 }}>
+                    {SPECIES_ABBR[taxon] ?? taxon.slice(0, 3)}
+                  </span>
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
 
-        {/* Time axis ticks */}
-        {ticks.map((t) => {
-          const x = LABEL_W + xFrac(t) * CHART_W
-          return (
-            <g key={t}>
-              <line x1={x} y1={16} x2={x} y2={TOTAL_H - 4} stroke="#1e293b" strokeWidth={1} />
-              <text x={x} y={12} textAnchor="middle" fontSize={8} fill="#64748b">
-                {tickLabels[t]}
-              </text>
-            </g>
-          )
-        })}
-
-        {/* Domain bars */}
-        {domainAges.map((da, i) => {
-          const y = 20 + i * (BAR_H + ROW_GAP)
-          const color = barColor(da.age.label)
-          const barLeft = LABEL_W + xFrac(da.age.time_mya) * CHART_W
-          const barWidth = CHART_W - xFrac(da.age.time_mya) * CHART_W
-          const isSelected = selectedDomain === da.domain_id
-          const isHov = hovered === da.domain_id
-
-          return (
-            <g
-              key={da.domain_id}
-              onClick={() => onDomainSelect(isSelected ? null : da.domain_id)}
-              onMouseEnter={() => setHovered(da.domain_id)}
-              onMouseLeave={() => setHovered(null)}
-              style={{ cursor: 'pointer' }}
-            >
-              {/* Domain label */}
-              <text
-                x={LABEL_W - 6} y={y + BAR_H / 2 + 4}
-                textAnchor="end" fontSize={9} fill={isSelected ? '#e2e8f0' : '#94a3b8'}
-                fontFamily="sans-serif" fontWeight={isSelected ? 'bold' : 'normal'}
-              >
-                {da.domain_id.length > 20 ? da.domain_id.slice(0, 19) + '…' : da.domain_id}
-              </text>
-
-              {/* Background track */}
-              <rect x={LABEL_W} y={y} width={CHART_W} height={BAR_H} fill="#1e293b" rx={3} />
-
-              {/* Domain age bar */}
-              <rect
-                x={barLeft} y={y}
-                width={Math.max(barWidth, 2)} height={BAR_H}
-                fill={color}
-                opacity={isSelected ? 1 : isHov ? 0.85 : 0.7}
-                rx={3}
-              />
-
-              {/* Origin marker */}
-              <line
-                x1={barLeft} y1={y}
-                x2={barLeft} y2={y + BAR_H}
-                stroke="white" strokeWidth={2} opacity={0.6}
-              />
-
-              {/* Age label inside bar */}
-              {barWidth > 60 && (
-                <text
-                  x={barLeft + 4} y={y + BAR_H / 2 + 4}
-                  fontSize={8} fill="white" opacity={0.9}
-                  fontFamily="sans-serif"
+        <tbody>
+          {tiers.map((tier) => (
+            <>
+              {/* Age tier section header */}
+              <tr key={`tier-${tier}`}>
+                <td
+                  colSpan={18}
+                  className={`py-1 px-2 text-xs font-semibold border-y ${TIER_HEADER[tier] ?? 'bg-gray-900 text-gray-400 border-gray-800'}`}
                 >
-                  {da.age.label}
-                </text>
-              )}
+                  {tier}
+                  <span className="ml-2 font-normal opacity-60">
+                    {grouped[tier].length} domain{grouped[tier].length !== 1 ? 's' : ''}
+                  </span>
+                </td>
+              </tr>
 
-              {/* Selected/hover highlight */}
-              {(isSelected || isHov) && (
-                <rect
-                  x={LABEL_W} y={y} width={CHART_W} height={BAR_H}
-                  fill="none" stroke={isSelected ? '#60a5fa' : '#94a3b8'}
-                  strokeWidth={1.5} rx={3}
-                />
-              )}
+              {/* Domain rows */}
+              {grouped[tier].map((da) => {
+                const isSelected = selectedDomain === da.domain_id
+                const isHov = hovered === da.domain_id
+                const presentSet = new Set(da.taxon_ids_present)
+                const source = da.source || 'Unknown'
+                const cellColor = SOURCE_CELL[source] ?? SOURCE_CELL.Unknown
+                const badgeStyle = SOURCE_BADGE[source] ?? SOURCE_BADGE.Unknown
 
-              {/* Tooltip on hover */}
-              {isHov && (
-                <text
-                  x={LABEL_W + CHART_W / 2} y={y - 3}
-                  textAnchor="middle" fontSize={8} fill="#94a3b8"
-                  fontFamily="sans-serif"
-                >
-                  {da.age.label} · {da.species_present.join(', ').slice(0, 60)}
-                </text>
-              )}
-            </g>
-          )
-        })}
+                // Build display label: description if available, else display_id
+                const primaryLabel = da.description
+                  ? da.description.length > 40
+                    ? da.description.slice(0, 38) + '…'
+                    : da.description
+                  : da.display_id
 
-        {/* Bottom axis label */}
-        <text
-          x={LABEL_W + CHART_W / 2}
-          y={TOTAL_H - 2}
-          textAnchor="middle" fontSize={9} fill="#475569"
-          fontFamily="sans-serif"
-        >
-          ← More ancient · Evolutionary time · Present →
-        </text>
-      </svg>
+                const secondaryLabel = da.description ? da.display_id : ''
 
-      <p className="text-xs text-gray-500 mt-1 px-2">
-        Click a bar to filter the phylogenetic tree to that domain's gain/loss events.
-      </p>
+                return (
+                  <tr
+                    key={da.domain_id}
+                    onClick={() => onDomainSelect(isSelected ? null : da.domain_id)}
+                    onMouseEnter={() => setHovered(da.domain_id)}
+                    onMouseLeave={() => setHovered(null)}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected ? 'bg-blue-950/40' : isHov ? 'bg-gray-800/40' : ''
+                    }`}
+                    title={`${da.domain_id} — ${da.description || 'no description'}`}
+                  >
+                    {/* Domain label */}
+                    <td className="sticky left-0 bg-gray-950 py-1 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        {/* Source badge */}
+                        <span className={`flex-shrink-0 text-[9px] px-1 py-0.5 rounded border font-mono ${badgeStyle}`}>
+                          {source.slice(0, 4)}
+                        </span>
+                        {/* Description / accession */}
+                        <span className={`${isSelected ? 'text-white' : 'text-gray-300'} font-medium`}>
+                          {primaryLabel}
+                        </span>
+                        {secondaryLabel && (
+                          <span className="text-gray-600 font-mono text-[9px]">{secondaryLabel}</span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Species presence cells */}
+                    {PHYLO_ORDER.map((taxon) => {
+                      const present = presentSet.has(taxon)
+                      return (
+                        <td key={taxon} className="px-0.5 py-1">
+                          <div
+                            className={`w-4 h-4 rounded-sm mx-auto ${
+                              present
+                                ? `${cellColor} opacity-90`
+                                : 'bg-gray-800/60 border border-gray-800'
+                            } ${isSelected && present ? 'ring-1 ring-blue-400' : ''}`}
+                            title={present
+                              ? `${speciesMeta[taxon]?.common}: present`
+                              : `${speciesMeta[taxon]?.common}: absent`}
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Legend + instructions */}
+      <div className="mt-3 px-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-gray-500 border-t border-gray-800 pt-2">
+        <span className="text-gray-600">Sources:</span>
+        {Object.entries(SOURCE_BADGE).filter(([s]) => s !== 'Unknown').map(([source, cls]) => (
+          <span key={source} className={`px-1.5 py-0.5 rounded border font-mono ${cls}`}>{source}</span>
+        ))}
+        <span className="ml-auto">Click a row to filter the phylo tree to that domain's gain/loss events.</span>
+      </div>
     </div>
   )
 }

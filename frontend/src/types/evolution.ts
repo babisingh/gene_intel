@@ -21,20 +21,27 @@ export interface SpeciesProfile {
   transcript_count: number
 }
 
-export interface DomainMatrixEntry {
+// Rich domain info — attached to DomainMatrixEntry, DomainAge, DomainEvent
+export interface DomainInfo {
+  description: string   // human-readable description, e.g. "NAD-binding oxidoreductase domain"
+  source: string        // Pfam | GO | InterPro | KEGG | PANTHER | Unknown
+  display_id: string    // clean accession, e.g. "PF07710" instead of "ENSG...__PF07710__312"
+}
+
+export interface DomainMatrixEntry extends DomainInfo {
   domain_id: string
   taxon_ids_present: string[]
   species_present: string[]
 }
 
-export interface DomainAge {
+export interface DomainAge extends DomainInfo {
   domain_id: string
   taxon_ids_present: string[]
   species_present: string[]
   age: { label: string; time_mya: number }
 }
 
-export interface DomainEvent {
+export interface DomainEvent extends DomainInfo {
   type: 'gain' | 'loss'
   domain_id: string
   node: string
@@ -64,6 +71,7 @@ export interface EvolutionResponse {
   domain_matrix: DomainMatrixEntry[]
   domain_ages: DomainAge[]
   domain_events: DomainEvent[]
+  domain_descriptions: Record<string, DomainInfo>
   narrative: string
   phylo_tree: PhyloNode
   species_meta: Record<string, SpeciesMeta>
