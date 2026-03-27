@@ -4,6 +4,7 @@ Used by the /api/evolution/{gene_name} endpoint.
 """
 
 import re
+from app.db.domain_descriptions import enrich_descriptions
 
 
 def get_gene_family_profiles(session, gene_name: str) -> list[dict]:
@@ -49,36 +50,66 @@ def get_gene_family_profiles(session, gene_name: str) -> list[dict]:
 
 def get_domain_descriptions(session, domain_ids: list[str]) -> dict[str, dict]:
     """
-    Fetch description and source for a list of domain_ids from Neo4j Domain nodes.
-    Returns {domain_id: {description, source, display_id}} where display_id is
-    the clean accession extracted from messy BioMart-style IDs.
+    Return {domain_id: {description, source, display_id}} for a list of domain_ids.
+
+    Pipeline:
+      1. Parse each domain_id to extract source + clean display_id.
+      2. Query Neo4j Domain nodes — use d.name / d.ipr_name as fallbacks
+         because BioMart always stores description="" but FTP ingests store
+         the human-readable name in d.name.
+      3. For any domain still missing a description, call the InterPro / QuickGO
+         REST APIs (with a persistent SQLite cache) to fetch the real name.
     """
     if not domain_ids:
         return {}
 
+    # Step 1 — parse all IDs upfront so we have source + display_id immediately
+    parsed_map: dict[str, dict] = {did: _parse_domain_id(did) for did in domain_ids}
+
+    # Step 2 — query Neo4j using the BEST available description field
     result = session.run(
         """
         MATCH (d:Domain)
         WHERE d.domain_id IN $ids
         RETURN d.domain_id AS domain_id,
-               d.description AS description,
-               d.source AS source
+               COALESCE(d.description, d.name, d.ipr_name, '') AS description,
+               COALESCE(d.source, d.source_db, '') AS source
         """,
         ids=domain_ids,
     )
-    db_data = {r["domain_id"]: {"description": r["description"] or "", "source": r["source"] or ""}
-               for r in result}
+    db_data = {
+        r["domain_id"]: {
+            "description": r["description"] or "",
+            "source":      r["source"] or "",
+        }
+        for r in result
+    }
 
-    # Enrich every domain_id with parsed display info, even those not in DB
+    # Build initial enriched map
     enriched: dict[str, dict] = {}
     for did in domain_ids:
-        db = db_data.get(did, {})
-        parsed = _parse_domain_id(did)
+        parsed = parsed_map[did]
+        db     = db_data.get(did, {})
         enriched[did] = {
-            "description": db.get("description") or parsed["description"],
-            "source": db.get("source") or parsed["source"],
-            "display_id": parsed["display_id"],
+            "description": db.get("description") or "",
+            "source":      db.get("source") or parsed["source"],
+            "display_id":  parsed["display_id"],
         }
+
+    # Step 3 — for domains with no description, call external APIs (cached)
+    needs_api = {
+        did: enriched[did]["display_id"]
+        for did in domain_ids
+        if not enriched[did]["description"]
+        and enriched[did]["display_id"]
+        and enriched[did]["display_id"] != "—"
+    }
+    if needs_api:
+        api_descriptions = enrich_descriptions(needs_api)
+        for did, desc in api_descriptions.items():
+            if desc:
+                enriched[did]["description"] = desc
+
     return enriched
 
 
@@ -100,6 +131,9 @@ def _parse_domain_id(domain_id: str) -> dict:
         source, acc = domain_id.split(":", 1)
         source = source.strip()
         acc = acc.strip()
+        # Keep full "GO:NNNNNNN" as display_id so APIs and the frontend get the right key
+        if source.upper() == "GO":
+            return {"source": "GO", "display_id": f"GO:{acc}", "description": ""}
         return {
             "source": source,
             "display_id": acc,
@@ -122,9 +156,13 @@ def _parse_domain_id(domain_id: str) -> dict:
                 return {"source": "GO", "display_id": clean, "description": ""}
             return {"source": "Unknown", "display_id": acc, "description": ""}
 
-    # Bare GO number
+    # Bare GO number (7-digit)
     if re.match(r"^\d{7}$", domain_id):
         return {"source": "GO", "display_id": f"GO:{domain_id}", "description": ""}
+
+    # Bare PANTHER accession (PTHRXXXXX)
+    if re.match(r"^PTHR\d+", domain_id, re.IGNORECASE):
+        return {"source": "PANTHER", "display_id": domain_id.upper(), "description": ""}
 
     return {"source": "Unknown", "display_id": domain_id, "description": ""}
 

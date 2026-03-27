@@ -87,11 +87,10 @@ const TIER_ORDER = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Ensure GO IDs always show "GO:NNNNNNN", Pfam stays "PF00000" etc. */
+/** Ensure GO IDs always show "GO:NNNNNNN". Backend now provides this but guard anyway. */
 function formatDisplayId(displayId: string, source: string): string {
   if (!displayId) return '—'
   if (source === 'GO' && /^\d+$/.test(displayId)) return `GO:${displayId.padStart(7, '0')}`
-  if (source === 'GO' && displayId.startsWith('GO:')) return displayId
   return displayId
 }
 
