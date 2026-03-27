@@ -17,7 +17,6 @@ import { GraphControls } from './components/GraphView/GraphControls'
 import { AnalysisDrawer } from './components/AnalysisDrawer/AnalysisDrawer'
 import { PersonaSelector } from './components/PersonaSelector'
 import { IngestionStatus } from './components/IngestionStatus'
-import { MarkdownText } from './components/MarkdownText'
 import { api } from './api/client'
 
 export default function App() {
@@ -57,13 +56,6 @@ export default function App() {
       {error && (
         <div className="mx-6 mt-4 px-4 py-3 bg-red-900/40 border border-red-700 rounded-lg text-sm text-red-300">
           {error}
-        </div>
-      )}
-
-      {/* Results explanation (non-researcher modes) */}
-      {results?.explanation && (
-        <div className="mx-6 mt-4 px-4 py-3 bg-blue-900/20 border border-blue-800/50 rounded-lg text-sm text-gray-300 leading-relaxed overflow-y-auto max-h-64">
-          <MarkdownText>{results.explanation}</MarkdownText>
         </div>
       )}
 

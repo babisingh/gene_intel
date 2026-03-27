@@ -54,7 +54,7 @@ export const useSearchStore = create<SearchStore>((set) => ({
   error: null,
   setError: (error) => set({ error }),
 
-  persona: 'student',
+  persona: 'researcher',
   setPersona: (persona) => set({ persona }),
 
   speciesFilter: null,

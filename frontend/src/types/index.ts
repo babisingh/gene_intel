@@ -92,7 +92,7 @@ export interface IngestStatusResponse {
   error: string | null
 }
 
-export type Persona = 'business' | 'student' | 'researcher'
+export type Persona = 'researcher'
 
 export interface DiscoveryChip {
   label: string
