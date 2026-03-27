@@ -12,8 +12,6 @@ interface ExplainerCardProps {
 }
 
 const PERSONA_LABELS: Record<Persona, string> = {
-  business: 'Business Analysis',
-  student: 'Scientific Explanation',
   researcher: 'Technical Report',
 }
 

@@ -4,15 +4,16 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { useSearchStore } from '../store/searchStore'
+import { usePaneContext } from '../contexts/PaneContext'
 
 export function useGeneDetail() {
-  const { selectedGene, persona } = useSearchStore()
+  const { pane } = usePaneContext()
+  const { selectedGene } = pane
 
   return useQuery({
-    queryKey: ['gene', selectedGene?.gene_id, persona],
-    queryFn: () => api.gene(selectedGene!.gene_id, persona),
+    queryKey: ['gene', selectedGene?.gene_id, 'researcher'],
+    queryFn: () => api.gene(selectedGene!.gene_id, 'researcher'),
     enabled: selectedGene !== null,
-    staleTime: 5 * 60 * 1000,  // 5 minutes
+    staleTime: 5 * 60 * 1000,
   })
 }

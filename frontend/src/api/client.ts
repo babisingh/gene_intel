@@ -13,6 +13,7 @@ import type {
   HealthResponse,
   IngestStatusResponse,
 } from '../types'
+import type { EvolutionResponse } from '../types/evolution'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -62,4 +63,7 @@ export const api = {
 
   ingestStatus: (): Promise<IngestStatusResponse> =>
     apiFetch('/api/ingest/status'),
+
+  evolution: (geneName: string): Promise<EvolutionResponse> =>
+    apiFetch(`/api/evolution/${encodeURIComponent(geneName)}`),
 }

@@ -1,24 +1,17 @@
 /**
- * Custom hook for executing a gene search query.
+ * Custom hook for executing a gene search query within a pane.
  */
 
 import { useCallback } from 'react'
 import { api } from '../api/client'
-import { useSearchStore } from '../store/searchStore'
+import { usePaneContext } from '../contexts/PaneContext'
 
 export function useSearch() {
-  const {
-    query,
-    persona,
-    speciesFilter,
-    setResults,
-    setIsLoading,
-    setError,
-  } = useSearchStore()
+  const { pane, setResults, setIsLoading, setError } = usePaneContext()
 
   const executeSearch = useCallback(
     async (overrideQuery?: string) => {
-      const q = overrideQuery ?? query
+      const q = overrideQuery ?? pane.query
       if (!q.trim()) return
 
       setIsLoading(true)
@@ -28,8 +21,8 @@ export function useSearch() {
       try {
         const results = await api.search({
           query: q,
-          persona,
-          species_filter: speciesFilter,
+          persona: 'researcher',
+          species_filter: pane.speciesFilter,
           limit: 300,
         })
         setResults(results)
@@ -39,7 +32,7 @@ export function useSearch() {
         setIsLoading(false)
       }
     },
-    [query, persona, speciesFilter, setResults, setIsLoading, setError],
+    [pane.query, pane.speciesFilter, setResults, setIsLoading, setError],
   )
 
   return { executeSearch }
