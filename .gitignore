@@ -30,9 +30,10 @@ htmlcov/
 !.env.example
 !.env.docker.example
 
-# Data files (large, gitignored)
+# Data files (large or runtime-generated, gitignored)
 data/gtf/
 data/biomart/
+data/desc_cache.db
 
 # Node
 frontend/node_modules/
