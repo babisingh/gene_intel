@@ -3,8 +3,12 @@ Neo4j queries for cross-species evolutionary analysis.
 Used by the /api/evolution/{gene_name} endpoint.
 """
 
+import logging
 import re
-from app.db.domain_descriptions import enrich_descriptions
+
+from app.db.domain_descriptions import enrich_descriptions, static_lookup
+
+logger = logging.getLogger(__name__)
 
 
 def get_gene_family_profiles(session, gene_name: str) -> list[dict]:
@@ -52,63 +56,91 @@ def get_domain_descriptions(session, domain_ids: list[str]) -> dict[str, dict]:
     """
     Return {domain_id: {description, source, display_id}} for a list of domain_ids.
 
-    Pipeline:
-      1. Parse each domain_id to extract source + clean display_id.
-      2. Query Neo4j Domain nodes — use d.name / d.ipr_name as fallbacks
-         because BioMart always stores description="" but FTP ingests store
-         the human-readable name in d.name.
-      3. For any domain still missing a description, call the InterPro / QuickGO
-         REST APIs (with a persistent SQLite cache) to fetch the real name.
+    Three-layer pipeline:
+      Layer 1 — static file  (domain_descriptions.py, instant, offline)
+      Layer 2 — Neo4j        (d.description already set, or d.name/d.ipr_name fallback)
+      Layer 3 — public APIs  (only for IDs not in layers 1 or 2; result written back to Neo4j)
     """
     if not domain_ids:
         return {}
 
-    # Step 1 — parse all IDs upfront so we have source + display_id immediately
+    # Parse all IDs → source + display_id
     parsed_map: dict[str, dict] = {did: _parse_domain_id(did) for did in domain_ids}
 
-    # Step 2 — query Neo4j using the BEST available description field
-    result = session.run(
-        """
-        MATCH (d:Domain)
-        WHERE d.domain_id IN $ids
-        RETURN d.domain_id AS domain_id,
-               COALESCE(d.description, d.name, d.ipr_name, '') AS description,
-               COALESCE(d.source, d.source_db, '') AS source
-        """,
-        ids=domain_ids,
-    )
-    db_data = {
-        r["domain_id"]: {
-            "description": r["description"] or "",
-            "source":      r["source"] or "",
-        }
-        for r in result
-    }
+    # Layer 1 — static file lookup (instant)
+    static_hits: dict[str, str] = {}
+    for did, parsed in parsed_map.items():
+        desc = static_lookup(parsed["display_id"], parsed["source"])
+        if desc:
+            static_hits[did] = desc
 
-    # Build initial enriched map
+    # Layer 2 — Neo4j for anything the static file didn't cover
+    needs_neo4j = [did for did in domain_ids if did not in static_hits]
+    db_data: dict[str, dict] = {}
+    if needs_neo4j:
+        result = session.run(
+            """
+            MATCH (d:Domain)
+            WHERE d.domain_id IN $ids
+            RETURN d.domain_id AS domain_id,
+                   COALESCE(d.description, d.name, d.ipr_name, '') AS description,
+                   COALESCE(d.source, d.source_db, '') AS source
+            """,
+            ids=needs_neo4j,
+        )
+        db_data = {
+            r["domain_id"]: {
+                "description": r["description"] or "",
+                "source":      r["source"] or "",
+            }
+            for r in result
+        }
+
+    # Merge layers 1 and 2
     enriched: dict[str, dict] = {}
     for did in domain_ids:
         parsed = parsed_map[did]
         db     = db_data.get(did, {})
         enriched[did] = {
-            "description": db.get("description") or "",
+            "description": static_hits.get(did) or db.get("description") or "",
             "source":      db.get("source") or parsed["source"],
             "display_id":  parsed["display_id"],
         }
 
-    # Step 3 — for domains with no description, call external APIs (cached)
+    # Layer 3 — public APIs for anything still missing a description
     needs_api = {
         did: enriched[did]["display_id"]
         for did in domain_ids
         if not enriched[did]["description"]
-        and enriched[did]["display_id"]
-        and enriched[did]["display_id"] != "—"
+        and enriched[did]["display_id"] not in ("", "—")
     }
     if needs_api:
-        api_descriptions = enrich_descriptions(needs_api)
+        source_map = {did: enriched[did]["source"] for did in needs_api}
+        api_descriptions = enrich_descriptions(needs_api, source_map)
+
         for did, desc in api_descriptions.items():
             if desc:
                 enriched[did]["description"] = desc
+
+        # Write API results back to Neo4j so they are free on all future queries
+        write_back = [
+            {"domain_id": did, "description": desc}
+            for did, desc in api_descriptions.items()
+            if desc
+        ]
+        if write_back:
+            try:
+                session.run(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (d:Domain {domain_id: row.domain_id})
+                    SET d.description = row.description
+                    """,
+                    rows=write_back,
+                )
+                logger.info("Wrote %d descriptions back to Neo4j Domain nodes.", len(write_back))
+            except Exception as exc:
+                logger.warning("Neo4j description write-back failed (non-fatal): %s", exc)
 
     return enriched
 
