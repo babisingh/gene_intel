@@ -39,7 +39,7 @@ export function SearchBar() {
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          placeholder="Natural language query — e.g. 'Find drug-like peptides near proteases in all vertebrates'"
+          placeholder="e.g. 'Show EGFR in human and fly' · 'Find caspase genes in human' · 'Compare lncRNA near MYC'"
           className="
             flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2
             text-sm text-white placeholder-gray-500
