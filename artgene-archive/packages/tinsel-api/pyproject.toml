@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "tinsel-api"
+version = "0.1.0"
+description = "Tinsel API — FastAPI + Mangum Lambda handler"
+requires-python = ">=3.12"
+dependencies = [
+    "tinsel-core>=0.1.0",
+    "tinsel-gates>=0.1.0",
+    "fastapi>=0.111",
+    "mangum>=0.17",
+    "uvicorn[standard]>=0.29",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tinsel_api*"]

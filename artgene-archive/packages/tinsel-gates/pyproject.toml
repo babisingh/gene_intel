@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "tinsel-gates"
+version = "0.1.0"
+description = "Sentinel Gates — pluggable biosecurity gate adapters"
+requires-python = ">=3.12"
+dependencies = [
+    "tinsel-core>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sentinel_gates*"]
