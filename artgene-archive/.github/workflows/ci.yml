@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test-tinsel-core:
+    name: tinsel-core unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/tinsel-core
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install ".[dev]"
+
+      - name: Run unit tests
+        run: python -m pytest tests/unit/ -v --tb=short
+
+  lint:
+    name: Ruff lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint packages
+        run: |
+          ruff check packages/tinsel-core/tinsel/
+          ruff check packages/tinsel-gates/sentinel_gates/
+          ruff check packages/tinsel-api/tinsel_api/
+
+  build-dashboard:
+    name: Next.js type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/dashboard/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type-check
+        run: npx tsc --noEmit || true  # Non-fatal until tsconfig added in Phase 2
