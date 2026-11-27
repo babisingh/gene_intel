@@ -56,9 +56,13 @@ ingestion code or `app/db/schema.py`. Pushes alone do not rebuild the graph.
 
 - Service settings: Dockerfile path `Dockerfile`, healthcheck path `/` with a
   600 second timeout, restart on failure. No volume, no public domain.
-- `NEO4J_PASSWORD`: a generated secret.
-- `NEO4J_AUTH`: `neo4j/${{NEO4J_PASSWORD}}`
+- `GRAPH_DB_PASSWORD`: a generated secret. It must not start with `NEO4J_`:
+  the image turns every `NEO4J_*` variable into a Neo4j setting, and an
+  unknown setting stops the server.
+- `NEO4J_AUTH`: `neo4j/${{GRAPH_DB_PASSWORD}}`
 - `PORT`: `7474`, used only by the healthcheck.
+- Anonymous usage reporting to Neo4j is turned off
+  (`NEO4J_dbms_usage__report_enabled=false`).
 - Memory defaults (heap 512m, page cache 768m) are set in the Dockerfile and
   can be overridden with `NEO4J_server_memory_heap_max__size`,
   `NEO4J_server_memory_heap_initial__size` and
@@ -69,7 +73,7 @@ ingestion code or `app/db/schema.py`. Pushes alone do not rebuild the graph.
 - `NEO4J_URI`: `bolt://${{neo4j.RAILWAY_PRIVATE_DOMAIN}}:7687` (use `bolt://`,
   not `neo4j://`, for a single server)
 - `NEO4J_USER`: `neo4j`
-- `NEO4J_PASSWORD`: `${{neo4j.NEO4J_PASSWORD}}`
+- `NEO4J_PASSWORD`: `${{neo4j.GRAPH_DB_PASSWORD}}`
 
 ## Running it locally
 

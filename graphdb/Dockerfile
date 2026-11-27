@@ -37,9 +37,13 @@ FROM neo4j:5.26.32-community
 ARG GENE_INTEL_SHA
 LABEL org.opencontainers.image.revision=$GENE_INTEL_SHA
 COPY --from=store --chown=neo4j:neo4j /graph /graph
+# Variables named NEO4J_* become Neo4j settings (see the image's entrypoint),
+# so the password variable on Railway must use another prefix.
 ENV NEO4J_server_directories_data=/graph \
     NEO4J_server_default__listen__address=:: \
     NEO4J_server_memory_heap_initial__size=512m \
     NEO4J_server_memory_heap_max__size=512m \
     NEO4J_server_memory_pagecache_size=768m \
-    NEO4J_db_tx__log_rotation_retention__policy="100M size"
+    NEO4J_db_tx__log_rotation_retention__policy="100M size" \
+    NEO4J_dbms_usage__report_enabled=false \
+    TINI_SUBREAPER=true
