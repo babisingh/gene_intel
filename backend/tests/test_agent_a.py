@@ -8,7 +8,13 @@ Integration tests (marked with @pytest.mark.integration) require a real API key.
 import pytest
 from unittest.mock import patch, MagicMock
 
-from app.agents.agent_a_semantic import generate_cypher, build_system_prompt, strip_code_fence
+from app.agents.agent_a_semantic import (
+    build_system_prompt,
+    generate_cypher,
+    generate_cypher_with_retry,
+    strip_code_fence,
+)
+from app.agents.llm_reply import LLMRefusalError
 from app.agents.bio_dictionary import BIO_DICTIONARY, LOADED_SPECIES
 
 
@@ -160,3 +166,16 @@ def test_generate_cypher_fixes_the_reply_from_the_reproduction():
         "success": True,
         "error": None,
     }
+
+
+def test_a_declined_question_raises_after_one_call():
+    """On 2026-11-27 Claude declined a question with no text, and the search
+    answered 500. The refusal must reach the workflow as LLMRefusalError, and
+    the question must not be sent again: the retries are for invalid Cypher."""
+    declined = MagicMock(stop_reason="refusal", content=[])
+    with patch("app.agents.agent_a_semantic.client") as mock_client:
+        mock_client.messages.create.return_value = declined
+        with pytest.raises(LLMRefusalError):
+            generate_cypher_with_retry("a question Claude declines")
+
+    assert mock_client.messages.create.call_count == 1

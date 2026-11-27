@@ -9,6 +9,8 @@ Orchestrates the full search pipeline:
 
 If step 1 or 2 fails, the run ends there with success False, error set and
 failed_step naming the step, and api/search.py turns that into an error status.
+If Claude declines the question in step 1, the run ends the same way, with
+DECLINED_MESSAGE as the error.
 
 Connected to:
   - agent_a_semantic.py: NL → Cypher
@@ -23,9 +25,16 @@ import logging
 
 from app.agents.agent_a_semantic import generate_cypher_with_retry
 from app.agents.agent_c_explainer import explain_results
+from app.agents.llm_reply import LLMRefusalError
 from app.db.queries.search_queries import execute_search_cypher, build_edges_from_results
 
 logger = logging.getLogger(__name__)
+
+# Shown to the user when Claude declines to turn the question into a query.
+DECLINED_MESSAGE = (
+    "The AI model declined to answer this question, so nothing was searched. "
+    "Try rephrasing it."
+)
 
 
 class SearchState(TypedDict):
@@ -55,7 +64,17 @@ def agent_a_node(state: SearchState) -> SearchState:
         taxon_list = str(state["species_filter"])
         query += f"\nRestrict results to species with taxon_ids: {taxon_list}"
 
-    result = generate_cypher_with_retry(query)
+    try:
+        result = generate_cypher_with_retry(query)
+    except LLMRefusalError:
+        # Not asked again: the same question would most likely be declined again.
+        logger.warning("Agent A: Claude declined the question (stop_reason=refusal)")
+        return {
+            **state,
+            "success": False,
+            "error": DECLINED_MESSAGE,
+            "failed_step": "agent_a",
+        }
     if result["success"]:
         return {**state, "cypher": result["cypher"], "cypher_error": None}
     else:

@@ -25,6 +25,7 @@ import re
 from anthropic import Anthropic
 from app.agents.bio_dictionary import BIO_DICTIONARY, GENE_PROPERTY_TYPES, LOADED_SPECIES
 from app.agents.cypher_validator import validate_cypher
+from app.agents.llm_reply import reply_text
 from app.config import settings
 
 client = Anthropic(api_key=settings.anthropic_api_key)
@@ -118,9 +119,9 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    if not response.content:
-        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
-    cypher = strip_code_fence(response.content[0].text.strip())
+    # Raises LLMRefusalError if Claude declined the question; graph_workflow.py
+    # turns that into a clear message instead of retrying.
+    cypher = strip_code_fence(reply_text(response).strip())
 
     # Validate before returning. The validator also quotes integer taxon IDs,
     # so the query to run is the one it hands back.
