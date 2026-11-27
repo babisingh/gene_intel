@@ -2,14 +2,21 @@
 GET /api/gene/{gene_id} — Returns full gene detail including features for locus diagram.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import get_neo4j_driver
 from app.models.api_models import GeneDetailResponse, GeneNode
 from app.db.queries.gene_queries import get_gene_detail
 from app.agents.agent_c_explainer import explain_single_gene
+from app.agents.llm_reply import LLMRefusalError
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Shown in place of the explanation when Claude declines to write one.
+DECLINED_EXPLANATION = "The AI model declined to explain this gene."
 
 
 @router.get("/gene/{gene_id}", response_model=GeneDetailResponse)
@@ -45,8 +52,12 @@ def get_gene(
         domains=detail["domains"],
     )
 
-    # Generate explanation
-    explanation = explain_single_gene(gene_data, persona=persona)
+    # Generate explanation. If Claude declines, the gene is still returned.
+    try:
+        explanation = explain_single_gene(gene_data, persona=persona)
+    except LLMRefusalError:
+        logger.warning("Agent C: Claude declined to explain gene %s", gene_id)
+        explanation = DECLINED_EXPLANATION
 
     return GeneDetailResponse(
         gene=gene_node,

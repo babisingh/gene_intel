@@ -4,8 +4,9 @@ POST /api/search — Main NL query endpoint.
 Flow: SearchRequest → Agent A (Cypher) → Neo4j → Agent C (explanation) → SearchResponse
 
 A failed step ends the flow with an error instead of an empty result:
-422 if Agent A could not write a query that passes validation, 502 if the
-Neo4j step failed (the database rejected the query or could not be reached).
+422 if Agent A could not write a query that passes validation or Claude
+declined the question, 502 if the Neo4j step failed (the database rejected
+the query or could not be reached).
 """
 
 import asyncio

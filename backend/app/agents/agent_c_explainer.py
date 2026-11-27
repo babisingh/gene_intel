@@ -17,6 +17,7 @@ Connected to:
 """
 
 from anthropic import Anthropic
+from app.agents.llm_reply import reply_text
 from app.config import settings
 
 client = Anthropic(api_key=settings.anthropic_api_key)
@@ -99,10 +100,7 @@ def explain_results(
         messages=[{"role": "user", "content": user_message}],
     )
 
-    if not response.content:
-        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
-
-    return response.content[0].text
+    return reply_text(response)
 
 
 def explain_single_gene(gene_data: dict, persona: str = "student") -> str:
@@ -140,10 +138,7 @@ def explain_single_gene(gene_data: dict, persona: str = "student") -> str:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    if not response.content:
-        raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
-
-    return response.content[0].text
+    return reply_text(response)
 
 
 def format_results_for_llm(results: list) -> str:

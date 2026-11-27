@@ -8,6 +8,10 @@ Regression covered: on 2026-11-27 Neo4j rejected a generated query with
 Neo.ClientError.Statement.SyntaxError, and the API still answered 200 with
 result_count 0, because Agent C ran after the failure and reset success and
 error. A failed step must end the run, and the client must get an error.
+
+Also covered: at 19:41 UTC the same day Claude declined a question, and the
+API answered 500 "Empty response from LLM (stop_reason=refusal)". A declined
+question must end the run at Agent A with a 422 and a message people can act on.
 """
 
 from unittest.mock import MagicMock
@@ -18,6 +22,7 @@ from fastapi.testclient import TestClient
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
 from app.agents import graph_workflow
+from app.agents.llm_reply import LLMRefusalError
 from app.api.router import router as api_router
 from app.db.queries import search_queries
 from app.dependencies import get_neo4j_driver
@@ -163,6 +168,19 @@ async def test_cypher_generation_failure_skips_neo4j_and_agent_c(agent_a, agent_
     agent_c.assert_not_called()
 
 
+async def test_a_declined_question_ends_the_run_with_a_clear_message(agent_a, agent_c):
+    agent_a.side_effect = LLMRefusalError("Claude declined to answer (stop_reason=refusal)")
+    driver = FakeDriver()
+
+    state = await run_workflow(driver)
+
+    assert state["success"] is False
+    assert state["failed_step"] == "agent_a"
+    assert state["error"] == graph_workflow.DECLINED_MESSAGE
+    assert driver.sessions_opened == 0
+    agent_c.assert_not_called()
+
+
 async def test_successful_search_runs_agent_c_on_the_results(agent_a, agent_c):
     driver = FakeDriver(records=[BRCA2_RECORD])
 
@@ -226,6 +244,18 @@ def test_search_reports_cypher_generation_failure_as_422(agent_a, agent_c):
     assert response.json() == {
         "detail": "Cypher generation failed: Query must contain a LIMIT clause (max 300)"
     }
+    assert driver.sessions_opened == 0
+    agent_c.assert_not_called()
+
+
+def test_search_reports_a_declined_question_as_422_with_a_clear_message(agent_a, agent_c):
+    agent_a.side_effect = LLMRefusalError("Claude declined to answer (stop_reason=refusal)")
+    driver = FakeDriver()
+
+    response = post_search(driver)
+
+    assert response.status_code == 422, response.json()
+    assert response.json() == {"detail": graph_workflow.DECLINED_MESSAGE}
     assert driver.sessions_opened == 0
     agent_c.assert_not_called()
 
