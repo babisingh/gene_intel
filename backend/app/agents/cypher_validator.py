@@ -9,6 +9,10 @@ Prevents Agent A from executing Cypher that:
   - Contains destructive operations (DELETE, DROP, SET on schema)
   - Exceeds safe LIMIT bounds
 
+It also quotes integer taxon IDs (g.species_taxon = 9606 becomes
+g.species_taxon = '9606'), because the graph stores taxon IDs as strings and
+an integer never matches them. validate_cypher returns the rewritten query.
+
 This is NOT a full Cypher parser — it's a targeted safety net using regex.
 A real Cypher AST parser would be overkill for MVP.
 
@@ -17,6 +21,7 @@ Connected to:
   - bio_dictionary.py: ALLOWED_* whitelists sourced from there
 """
 
+import logging
 import re
 from app.agents.bio_dictionary import (
     ALLOWED_NODE_LABELS,
@@ -24,6 +29,8 @@ from app.agents.bio_dictionary import (
     ALLOWED_DOMAIN_PROPERTIES,
     ALLOWED_RELATIONSHIP_TYPES,
 )
+
+logger = logging.getLogger(__name__)
 
 FORBIDDEN_PATTERNS = [
     (r"\bDELETE\b", "Destructive DELETE operation not allowed"),
@@ -41,8 +48,110 @@ ALL_ALLOWED_PROPS = (
     | {"distance_bp", "taxon_id", "name", "common_name", "kingdom"}
 )
 
+# ── Taxon ID literals ─────────────────────────────────────────────────────────
+# Gene.species_taxon and Species.taxon_id hold strings such as '9606', and
+# Neo4j never treats a string as equal to a number, so g.species_taxon = 9606
+# matches nothing. Agent A's prompt says to quote taxon IDs, but Claude does
+# not always do it, so integer literals compared with these properties are
+# quoted here before the query runs.
+
+TAXON_ID_PROPERTIES = ("species_taxon", "taxon_id")
+
+# String literals, quoted identifiers and comments. They are hidden while the
+# rewrites below run, so nothing inside them changes.
+_OPAQUE_RE = re.compile(
+    r"""
+      '(?:[^'\\]|\\.)*'     # 'string'
+    | "(?:[^"\\]|\\.)*"     # "string"
+    | `[^`]*`               # `quoted identifier`
+    | //[^\n]*              # line comment
+    | /\*.*?\*/             # block comment
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+_HIDDEN = "\x00"
+
+_TAXON_KEY = "(?:" + "|".join(TAXON_ID_PROPERTIES) + ")"
+_TAXON_PROP = r"\b[A-Za-z_]\w*\s*\.\s*" + _TAXON_KEY + r"\b"   # g.species_taxon
+_INTEGER = r"(?<![\w.'])\d+(?![\w.'])"                          # 9606, not 9606.5
+_EQUALITY = r"\s*(?:=|<>)\s*"
+
+_TAXON_COMPARISONS = [
+    # g.species_taxon = 9606, s.taxon_id <> 9606
+    re.compile(rf"(?P<pre>{_TAXON_PROP}{_EQUALITY})(?P<num>{_INTEGER})"),
+    # 9606 = g.species_taxon
+    re.compile(rf"(?P<num>{_INTEGER})(?P<post>{_EQUALITY}{_TAXON_PROP})"),
+    # (s:Species {taxon_id: 9606}), (g:Gene {species_taxon: 9606})
+    re.compile(rf"(?P<pre>[{{,]\s*{_TAXON_KEY}\s*:\s*)(?P<num>{_INTEGER})"),
+]
+# g.species_taxon IN [9606, 10090]
+_TAXON_IN_LIST_RE = re.compile(rf"(?P<pre>{_TAXON_PROP}\s+(?i:IN)\s*\[)(?P<items>[^\[\]]*)\]")
+# List items that are all integers or (hidden) strings, e.g. 9606, '10090'
+_LITERAL_ITEMS_RE = re.compile(rf"\s*(?:(?:\d+|{_HIDDEN})\s*(?:,\s*(?:\d+|{_HIDDEN})\s*)*)?")
+
+
+def normalise_taxon_literals(cypher: str) -> str:
+    """
+    Quote integer literals that are compared with a taxon ID property:
+
+        g.species_taxon = 9606            ->  g.species_taxon = '9606'
+        g.species_taxon IN [9606, 10090]  ->  g.species_taxon IN ['9606', '10090']
+        (s:Species {taxon_id: 9606})      ->  (s:Species {taxon_id: '9606'})
+
+    Text inside string literals, quoted identifiers and comments is not
+    touched, and neither is anything other than a plain integer literal:
+    toInteger(g.species_taxon) = 9606 already works, and a computed list
+    is left as it is.
+    """
+    if _HIDDEN in cypher:
+        return cypher
+
+    hidden: list[str] = []
+
+    def hide(match: re.Match) -> str:
+        hidden.append(match.group(0))
+        return _HIDDEN
+
+    text = _OPAQUE_RE.sub(hide, cypher)
+    quoted = 0
+
+    def quote(match: re.Match) -> str:
+        nonlocal quoted
+        quoted += 1
+        parts = match.groupdict()
+        return f"{parts.get('pre') or ''}'{parts['num']}'{parts.get('post') or ''}"
+
+    def quote_items(match: re.Match) -> str:
+        nonlocal quoted
+        items = match.group("items")
+        if not _LITERAL_ITEMS_RE.fullmatch(items):
+            return match.group(0)
+        quoted += len(re.findall(r"\d+", items))
+        return match.group("pre") + re.sub(r"\d+", r"'\g<0>'", items) + "]"
+
+    for pattern in _TAXON_COMPARISONS:
+        text = pattern.sub(quote, text)
+    text = _TAXON_IN_LIST_RE.sub(quote_items, text)
+
+    if quoted:
+        logger.info("Quoted %d integer taxon ID literal(s) in generated Cypher", quoted)
+
+    restore = iter(hidden)
+    return re.sub(_HIDDEN, lambda _: next(restore), text)
+
 
 def validate_cypher(cypher: str) -> dict:
+    """
+    Returns: {"valid": bool, "error": str | None, "cypher": str}
+
+    "cypher" is the query to run: the input with integer taxon IDs quoted by
+    normalise_taxon_literals. The checks below run on that text.
+    """
+    cypher = normalise_taxon_literals(cypher)
+    return {**_check(cypher), "cypher": cypher}
+
+
+def _check(cypher: str) -> dict:
     """
     Returns: {"valid": bool, "error": str | None}
     """

@@ -162,11 +162,28 @@ ALLOWED_RELATIONSHIP_TYPES = {
     "HAS_GENE", "HAS_TRANSCRIPT", "HAS_FEATURE", "HAS_DOMAIN", "CO_LOCATED_WITH"
 }
 
-ALLOWED_GENE_PROPERTIES = {
-    "gene_id", "name", "biotype", "chromosome", "start", "end", "strand",
-    "length", "cds_length", "exon_count", "utr5_length", "utr3_length",
-    "utr_cds_ratio", "species_taxon",
+# Gene properties with the type the loader stores for each
+# (app/ingestion/feature_extractor.py). Agent A's prompt shows the types,
+# because Neo4j never treats a string as equal to a number: the stored
+# species_taxon '9606' does not match the integer 9606.
+GENE_PROPERTY_TYPES = {
+    "gene_id": "string",
+    "name": "string",
+    "biotype": "string",
+    "chromosome": "string",       # '1', 'X', 'MT'
+    "start": "integer",
+    "end": "integer",
+    "strand": "string",           # '+' or '-'
+    "length": "integer",
+    "cds_length": "integer",
+    "exon_count": "integer",
+    "utr5_length": "integer",
+    "utr3_length": "integer",
+    "utr_cds_ratio": "float",
+    "species_taxon": "string",    # NCBI taxon ID, e.g. '9606'
 }
+
+ALLOWED_GENE_PROPERTIES = set(GENE_PROPERTY_TYPES)
 
 ALLOWED_TRANSCRIPT_PROPERTIES = {
     "transcript_id", "type", "exon_count", "support_level", "is_canonical",
@@ -175,3 +192,30 @@ ALLOWED_TRANSCRIPT_PROPERTIES = {
 ALLOWED_DOMAIN_PROPERTIES = {"domain_id", "source", "description"}
 
 ALLOWED_RELATIONSHIP_PROPERTIES = {"distance_bp"}
+
+
+# ── SPECIES IN THE GRAPH ────────────────────────────────────────────────────
+# Taxon ID to (common name, scientific name) for the 15 :Species nodes in the
+# deployed graph (checked against /api/species on 2026-11-27). Taxon IDs are
+# strings, in Species.taxon_id and Gene.species_taxon alike, because the
+# loader's SPECIES_REGISTRY (app/ingestion/run_ingest.py) is keyed by string.
+# The registry also lists cow (9913) and king cobra (8665), but neither has a
+# GTF file, so neither is loaded.
+
+LOADED_SPECIES = {
+    "9606": ("Human", "Homo sapiens"),
+    "10090": ("Mouse", "Mus musculus"),
+    "7955": ("Zebrafish", "Danio rerio"),
+    "9031": ("Chicken", "Gallus gallus"),
+    "8364": ("Western clawed frog", "Xenopus tropicalis"),
+    "9598": ("Chimpanzee", "Pan troglodytes"),
+    "7227": ("Fruit fly", "Drosophila melanogaster"),
+    "6239": ("Roundworm", "Caenorhabditis elegans"),
+    "3702": ("Thale cress", "Arabidopsis thaliana"),
+    "4530": ("Rice", "Oryza sativa"),
+    "3218": ("Moss", "Physcomitrium patens"),
+    "3055": ("Green alga", "Chlamydomonas reinhardtii"),
+    "162425": ("Black mould", "Aspergillus niger"),
+    "4932": ("Yeast", "Saccharomyces cerevisiae"),
+    "511145": ("E. coli K-12", "Escherichia coli K-12"),
+}
