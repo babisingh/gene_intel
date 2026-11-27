@@ -1,6 +1,9 @@
-# Exclude large genomic data files from the Docker image.
-# GTF and BioMart files are only needed for ingestion (run locally or in CI),
-# NOT inside the Railway container. All graph data lives in Neo4j Aura.
+# Keep downloaded genomic data out of the build context and the web app image.
+# By default the download scripts in scripts/ write GTF and BioMart files to
+# the top-level data/ folder. The graph itself lives in the Railway neo4j
+# service, built into that service's image by graphdb/ (see graphdb/README.md).
+# These patterns only match data/ at the top of the repository. The GTF files
+# committed in backend/data/gtf are still copied into the image with backend/.
 data/
 data/gtf/
 data/biomart/
