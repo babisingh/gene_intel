@@ -20,6 +20,8 @@ Connected to:
   - neo4j_client.py: executes validated Cypher
 """
 
+import re
+
 from anthropic import Anthropic
 from app.agents.bio_dictionary import BIO_DICTIONARY, GENE_PROPERTY_TYPES, LOADED_SPECIES
 from app.agents.cypher_validator import validate_cypher
@@ -83,6 +85,21 @@ def build_system_prompt() -> str:
     )
 
 
+# A markdown code fence, with or without a language tag such as "cypher".
+_CODE_FENCE_RE = re.compile(r"```(?:[A-Za-z]*[ \t]*\r?\n)?(.*?)```", re.DOTALL)
+
+
+def strip_code_fence(text: str) -> str:
+    """
+    Return the Cypher inside a markdown code fence, or the text unchanged.
+
+    Rule 6 asks for bare Cypher, but Claude sometimes replies with a fenced
+    block, and Neo4j rejects the fence as a syntax error.
+    """
+    match = _CODE_FENCE_RE.search(text)
+    return match.group(1).strip() if match else text
+
+
 def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
     """
     Returns: {"cypher": str, "success": bool, "error": str | None}
@@ -103,7 +120,7 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
 
     if not response.content:
         raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
-    cypher = response.content[0].text.strip()
+    cypher = strip_code_fence(response.content[0].text.strip())
 
     # Validate before returning. The validator also quotes integer taxon IDs,
     # so the query to run is the one it hands back.

@@ -8,7 +8,7 @@ Integration tests (marked with @pytest.mark.integration) require a real API key.
 import pytest
 from unittest.mock import patch, MagicMock
 
-from app.agents.agent_a_semantic import generate_cypher, build_system_prompt
+from app.agents.agent_a_semantic import generate_cypher, build_system_prompt, strip_code_fence
 from app.agents.bio_dictionary import BIO_DICTIONARY, LOADED_SPECIES
 
 
@@ -107,6 +107,55 @@ def test_generate_cypher_returns_the_query_with_taxon_ids_quoted():
         "cypher": (
             "MATCH (g:Gene) WHERE g.species_taxon = '9606' "
             "RETURN g as gene, [] as domains, g.species_taxon as species LIMIT 300"
+        ),
+        "success": True,
+        "error": None,
+    }
+
+
+# ── Markdown code fences ─────────────────────────────────────────────────────
+
+BARE = "MATCH (g:Gene) RETURN g as gene, [] as domains, g.species_taxon as species LIMIT 10"
+
+
+@pytest.mark.parametrize("reply", [
+    f"```cypher\n{BARE}\n```",
+    f"```Cypher\n{BARE}\n```",
+    f"```\n{BARE}\n```",
+    f"```{BARE}```",
+    f"Here is the query:\n```cypher\n{BARE}\n```\nIt lists genes.",
+    BARE,
+])
+def test_strip_code_fence_returns_the_bare_query(reply):
+    assert strip_code_fence(reply) == BARE
+
+
+# The reply Claude gave for "human genes with the longest coding sequence" on
+# 2026-11-27. Neo4j rejected it with a SyntaxError at line 1, column 1 because
+# of the fence (Railway logs, 13:23 UTC), and the search reported 0 results.
+CLAUDE_REPLY_2026_11_27 = (
+    "```cypher\n"
+    "MATCH (g:Gene)\n"
+    "WHERE g.species_taxon = 9606 AND g.biotype = 'protein_coding' AND g.cds_length IS NOT NULL\n"
+    "RETURN g as gene, collect(DISTINCT null) as domains, g.species_taxon as species\n"
+    "ORDER BY g.cds_length DESC\n"
+    "LIMIT 300\n"
+    "```"
+)
+
+
+def test_generate_cypher_fixes_the_reply_from_the_reproduction():
+    with patch("app.agents.agent_a_semantic.client") as mock_client:
+        mock_client.messages.create.return_value = _make_mock_response(CLAUDE_REPLY_2026_11_27)
+        result = generate_cypher("human genes with the longest coding sequence")
+
+    assert result == {
+        "cypher": (
+            "MATCH (g:Gene)\n"
+            "WHERE g.species_taxon = '9606' AND g.biotype = 'protein_coding' AND g.cds_length IS NOT NULL\n"
+            "RETURN g as gene, collect(DISTINCT null) as domains, g.species_taxon as species\n"
+            "ORDER BY g.cds_length DESC\n"
+            "LIMIT 300"
         ),
         "success": True,
         "error": None,
