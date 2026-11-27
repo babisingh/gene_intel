@@ -2,6 +2,10 @@
 POST /api/search — Main NL query endpoint.
 
 Flow: SearchRequest → Agent A (Cypher) → Neo4j → Agent C (explanation) → SearchResponse
+
+A failed step ends the flow with an error instead of an empty result:
+422 if Agent A could not write a query that passes validation, 502 if the
+Neo4j step failed (the database rejected the query or could not be reached).
 """
 
 import asyncio
@@ -55,7 +59,8 @@ async def search(
         raise HTTPException(status_code=500, detail=str(exc))
 
     if not state.get("success") and state.get("error"):
-        raise HTTPException(status_code=422, detail=state["error"])
+        status_code = 502 if state.get("failed_step") == "neo4j" else 422
+        raise HTTPException(status_code=status_code, detail=state["error"])
 
     nodes = [_to_gene_node(r) for r in state["raw_results"]]
     edges = [

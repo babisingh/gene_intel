@@ -7,6 +7,9 @@ Orchestrates the full search pipeline:
   3. Agent C generates a persona-aware explanation
   4. Results are assembled into a SearchResponse
 
+If step 1 or 2 fails, the run ends there with success False, error set and
+failed_step naming the step, and api/search.py turns that into an error status.
+
 Connected to:
   - agent_a_semantic.py: NL → Cypher
   - agent_c_explainer.py: results → explanation
@@ -40,6 +43,7 @@ class SearchState(TypedDict):
     explanation: str
     success: bool
     error: Optional[str]
+    failed_step: Optional[str]  # "agent_a" or "neo4j" if that step failed
 
 
 def agent_a_node(state: SearchState) -> SearchState:
@@ -61,6 +65,7 @@ def agent_a_node(state: SearchState) -> SearchState:
             "cypher_error": result["error"],
             "success": False,
             "error": f"Cypher generation failed: {result['error']}",
+            "failed_step": "agent_a",
         }
 
 
@@ -84,6 +89,7 @@ def neo4j_node(state: SearchState, driver) -> SearchState:
             "edges": [],
             "success": False,
             "error": f"Query execution error: {exc}",
+            "failed_step": "neo4j",
         }
 
 
@@ -107,6 +113,18 @@ def agent_c_node(state: SearchState) -> SearchState:
         }
 
 
+def continue_unless_failed(next_node: str):
+    """
+    Edge condition: go on to next_node, or end the run if the step that just
+    ran set failed_step. Agent C used to run after a failed step and reset
+    success and error, so a failed query reached the API as 0 results.
+    """
+    def route(state: SearchState) -> str:
+        return END if state.get("failed_step") else next_node
+
+    return route
+
+
 def build_workflow(driver):
     """
     Build and return a compiled LangGraph workflow.
@@ -121,8 +139,8 @@ def build_workflow(driver):
     graph.add_node("agent_c", agent_c_node)
 
     graph.set_entry_point("agent_a")
-    graph.add_edge("agent_a", "neo4j")
-    graph.add_edge("neo4j", "agent_c")
+    graph.add_conditional_edges("agent_a", continue_unless_failed("neo4j"), ["neo4j", END])
+    graph.add_conditional_edges("neo4j", continue_unless_failed("agent_c"), ["agent_c", END])
     graph.add_edge("agent_c", END)
 
     return graph.compile()
@@ -153,6 +171,7 @@ async def run_search(
         "explanation": "",
         "success": False,
         "error": None,
+        "failed_step": None,
     }
 
     final_state = await workflow.ainvoke(initial_state)
