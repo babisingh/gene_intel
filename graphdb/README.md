@@ -41,14 +41,14 @@ from network APIs and stay a separate step.
 graphdb/deploy.sh <railway project id>
 ```
 
-The `neo4j` service is not connected to GitHub. Railway applies the repo's
-root `railway.json` (the web app's Dockerfile and healthcheck) to any service
-built from this repo, and new services cannot use another config file. So
-`deploy.sh` uploads only this Dockerfile with `railway up`, with
-`GENE_INTEL_SHA` set to the current commit, and the build fetches the code and
-GTF files from GitHub at that commit (Railway's upload limit is smaller than
-the GTF files). Push first, then rerun it after changing the GTF files, the
-ingestion code or `app/db/schema.py`. Pushes alone do not rebuild the graph.
+The `neo4j` service is not connected to GitHub, and must not be: its
+Dockerfile path setting is `Dockerfile`, so built from GitHub it would build
+the repository's root `Dockerfile`, which is the web app. Instead `deploy.sh`
+uploads only this Dockerfile with `railway up`, with `GENE_INTEL_SHA` set to
+the current commit, and the build fetches the code and GTF files from GitHub
+at that commit (Railway's upload limit is smaller than the GTF files). Push
+first, then rerun it after changing the GTF files, the ingestion code or
+`app/db/schema.py`. Pushes alone do not rebuild the graph.
 
 ## Railway settings
 
@@ -70,6 +70,8 @@ ingestion code or `app/db/schema.py`. Pushes alone do not rebuild the graph.
 
 `gene_intel` service:
 
+- Build and deploy settings: the table under "Deploying on Railway" in the
+  root `README.md`.
 - `NEO4J_URI`: `bolt://${{neo4j.RAILWAY_PRIVATE_DOMAIN}}:7687` (use `bolt://`,
   not `neo4j://`, for a single server)
 - `NEO4J_USER`: `neo4j`
