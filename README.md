@@ -193,6 +193,11 @@ built frontend), and `neo4j`, the graph database, built by `graphdb/` (see
 | Healthcheck timeout | 30 seconds |
 | Restart policy | On failure |
 | Maximum restart retries | 3 |
+| Watch paths | `/Dockerfile`, `/requirements.txt`, `/backend/**`, `/frontend/**`, `/scripts/**` |
+
+Pushes to `main` that change one of the watch paths deploy `gene_intel` to
+production automatically. Other pushes, such as changes only to `graphdb/` or
+the docs, do not.
 
 If you change one in the service's settings, change it here too.
 
