@@ -12,6 +12,11 @@ error. A failed step must end the run, and the client must get an error.
 Also covered: at 19:41 UTC the same day Claude declined a question, and the
 API answered 500 "Empty response from LLM (stop_reason=refusal)". A declined
 question must end the run at Agent A with a 422 and a message people can act on.
+
+And: at 20:01 UTC a search for structural twins of insulin found no genes,
+because its query needed HAS_DOMAIN and the database has no domains, and
+Agent C called the empty result "scientifically meaningful rather than a
+technical limitation". An empty result must get a plain message, not Claude.
 """
 
 from unittest.mock import MagicMock
@@ -36,6 +41,12 @@ CYPHER = (
 # The shape that failed on 2026-11-27: the query inside a markdown code fence,
 # which the validator let through and Neo4j rejected at line 1, column 1.
 FENCED_CYPHER = f"```cypher\n{CYPHER}\n```"
+# A query that needs protein domains, which the live database did not have.
+DOMAIN_CYPHER = (
+    "MATCH (g:Gene)-[:HAS_DOMAIN]->(d:Domain) WHERE d.name CONTAINS 'kinase' "
+    "RETURN g AS gene, collect(DISTINCT d.domain_id) AS domains, "
+    "g.species_taxon AS species LIMIT 10"
+)
 EXPLANATION = "## Summary\nOne human gene matched."
 BRCA2_RECORD = {
     "gene": {
@@ -207,6 +218,50 @@ async def test_agent_c_failure_still_returns_the_results(agent_a, agent_c):
     assert [gene["name"] for gene in state["raw_results"]] == ["BRCA2"]
 
 
+async def test_an_empty_result_gets_a_plain_message_without_asking_claude(agent_a, agent_c):
+    state = await run_workflow(FakeDriver())
+
+    assert state["success"] is True
+    assert state["raw_results"] == []
+    assert state["missing_data"] is None
+    assert state["explanation"] == graph_workflow.NO_RESULTS_MESSAGE
+    agent_c.assert_not_called()
+
+
+async def test_an_empty_domain_search_says_domains_are_not_loaded(agent_a, agent_c, monkeypatch):
+    agent_a.return_value = {"cypher": DOMAIN_CYPHER, "success": True, "error": None}
+    monkeypatch.setattr(graph_workflow, "relationship_type_exists", lambda session, rel_type: False)
+
+    state = await run_workflow(FakeDriver())
+
+    assert state["missing_data"] == "domains"
+    assert state["explanation"] == graph_workflow.NO_DOMAINS_MESSAGE
+    agent_c.assert_not_called()
+
+
+async def test_an_empty_domain_search_with_domains_loaded_gets_the_plain_message(
+    agent_a, agent_c, monkeypatch
+):
+    agent_a.return_value = {"cypher": DOMAIN_CYPHER, "success": True, "error": None}
+    monkeypatch.setattr(graph_workflow, "relationship_type_exists", lambda session, rel_type: True)
+
+    state = await run_workflow(FakeDriver())
+
+    assert state["missing_data"] is None
+    assert state["explanation"] == graph_workflow.NO_RESULTS_MESSAGE
+    agent_c.assert_not_called()
+
+
+def test_relationship_type_exists_reads_the_database_relationship_types():
+    session = FakeSession(
+        records=[{"relationshipType": "HAS_GENE"}, {"relationshipType": "CO_LOCATED_WITH"}]
+    )
+
+    assert search_queries.relationship_type_exists(session, "CO_LOCATED_WITH") is True
+    assert search_queries.relationship_type_exists(session, "HAS_DOMAIN") is False
+    assert "db.relationshipTypes()" in session.queries[0]
+
+
 # ── POST /api/search ──────────────────────────────────────────────────────────
 
 
@@ -270,3 +325,13 @@ def test_search_returns_genes_and_explanation(agent_a, agent_c):
     assert body["nodes"][0]["species_name"] == "Homo sapiens"
     assert body["explanation"] == EXPLANATION
     assert body["cypher_used"] == CYPHER
+
+
+def test_search_with_no_genes_answers_200_with_a_plain_message(agent_a, agent_c):
+    response = post_search(FakeDriver())
+
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["result_count"] == 0
+    assert body["explanation"] == graph_workflow.NO_RESULTS_MESSAGE
+    agent_c.assert_not_called()
