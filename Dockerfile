@@ -1,26 +1,33 @@
-# ── Gene-Intel — Production Docker image ──────────────────────────────────────
+# ── Gene-Intel web app: production Docker image ───────────────────────────────
 #
-# Architecture:
-#   ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
-#   │  Local PC   │────▶│  Neo4j Aura      │◀────│  Railway (this    │
-#   │  (ingest)   │     │  (graph DB cloud)│     │   Dockerfile)     │
-#   └─────────────┘     └──────────────────┘     └───────────────────┘
+# Railway builds this file for the gene_intel service (project gene-intel).
+# The image holds the FastAPI backend and the built React frontend. The graph
+# database is a separate Railway service, neo4j, built from graphdb/ with the
+# graph already in its image (see graphdb/README.md). The app reaches it over
+# Railway's private network:
 #
-# This image contains ONLY the web application (FastAPI + React).
-# GTF and BioMart data files are EXCLUDED via .dockerignore — they live on
-# the local machine used for ingestion, not in Railway.
+#   gene_intel (this image) --bolt, private network--> neo4j (graphdb/Dockerfile)
 #
-# Required Railway environment variables:
-#   NEO4J_URI         neo4j+s://<id>.databases.neo4j.io
-#   NEO4J_USER        neo4j
-#   NEO4J_PASSWORD    <password>
-#   ANTHROPIC_API_KEY sk-ant-api03-…
+# backend/ is copied in whole, so the GTF files in backend/data/gtf are in this
+# image too (.dockerignore only leaves out the top-level data/ folder). The web
+# app does not read them at runtime: graphdb/ builds the graph from them into
+# the neo4j image.
+#
+# Variables the app needs, set on the gene_intel service in Railway
+# (graphdb/README.md, "Railway settings", shows what the NEO4J_* ones reference):
+#   NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD   the neo4j service, over bolt://
+#   ANTHROPIC_API_KEY                        the Anthropic API key
+#
+# Pushes to main that change this file, requirements.txt, backend/, frontend/
+# or scripts/ deploy gene_intel to production (README, "Deploying on Railway").
 #
 # ── Stage 1: Build React frontend ─────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+# npm ci installs exactly what package-lock.json lists, and fails if the
+# lockfile does not match package.json.
+RUN npm ci
 COPY frontend/ ./
 # VITE_API_BASE_URL is intentionally empty so the frontend uses relative URLs
 # (same origin as the backend in production).
