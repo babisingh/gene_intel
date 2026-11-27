@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from app.agents.agent_a_semantic import generate_cypher, build_system_prompt
-from app.agents.bio_dictionary import BIO_DICTIONARY
+from app.agents.bio_dictionary import BIO_DICTIONARY, LOADED_SPECIES
 
 
 def test_system_prompt_contains_bio_dictionary_concepts():
@@ -23,6 +23,28 @@ def test_system_prompt_contains_gene_properties():
     assert "cds_length" in prompt
     assert "species_taxon" in prompt
     assert "exon_count" in prompt
+
+
+def test_system_prompt_states_property_types():
+    prompt = build_system_prompt()
+    assert "species_taxon (string)" in prompt
+    assert "chromosome (string)" in prompt
+    assert "cds_length (integer)" in prompt
+    assert "utr_cds_ratio (float)" in prompt
+
+
+def test_system_prompt_lists_every_loaded_species_with_a_quoted_taxon_id():
+    prompt = build_system_prompt()
+    assert len(LOADED_SPECIES) == 15
+    for taxon_id, (common_name, scientific_name) in LOADED_SPECIES.items():
+        assert f"- '{taxon_id}': {common_name} ({scientific_name})" in prompt
+
+
+def test_system_prompt_filter_examples_quote_taxon_ids():
+    prompt = build_system_prompt()
+    assert "g.species_taxon = '9606'" in prompt
+    assert "g.species_taxon IN ['9606', '10090']" in prompt
+    assert "[list_of_taxon_ids]" not in prompt
 
 
 def _make_mock_response(cypher_text: str):
@@ -70,3 +92,22 @@ def test_generate_cypher_strips_whitespace():
     # The cypher should be stripped
     assert not result["cypher"].startswith("\n")
     assert not result["cypher"].endswith("\n")
+
+
+def test_generate_cypher_returns_the_query_with_taxon_ids_quoted():
+    claude_cypher = (
+        "MATCH (g:Gene) WHERE g.species_taxon = 9606 "
+        "RETURN g as gene, [] as domains, g.species_taxon as species LIMIT 300"
+    )
+    with patch("app.agents.agent_a_semantic.client") as mock_client:
+        mock_client.messages.create.return_value = _make_mock_response(claude_cypher)
+        result = generate_cypher("human genes")
+
+    assert result == {
+        "cypher": (
+            "MATCH (g:Gene) WHERE g.species_taxon = '9606' "
+            "RETURN g as gene, [] as domains, g.species_taxon as species LIMIT 300"
+        ),
+        "success": True,
+        "error": None,
+    }

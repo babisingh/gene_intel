@@ -21,7 +21,7 @@ Connected to:
 """
 
 from anthropic import Anthropic
-from app.agents.bio_dictionary import BIO_DICTIONARY, ALLOWED_GENE_PROPERTIES
+from app.agents.bio_dictionary import BIO_DICTIONARY, GENE_PROPERTY_TYPES, LOADED_SPECIES
 from app.agents.cypher_validator import validate_cypher
 from app.config import settings
 
@@ -40,8 +40,15 @@ Relationships:
   (:Gene)-[:HAS_DOMAIN]->(:Domain)
   (:Gene)-[:CO_LOCATED_WITH {{distance_bp: Int}}]->(:Gene)
 
-## Valid Gene Properties
+## Valid Gene Properties (with their types)
 {gene_props}
+
+## Taxon IDs Are Strings
+Gene.species_taxon and Species.taxon_id store NCBI taxon IDs as strings, so
+always quote a taxon ID: g.species_taxon = '9606'. Neo4j never treats a string
+as equal to a number, so an unquoted 9606 matches no genes.
+Species in the graph ('taxon ID': common name (scientific name)):
+{species_list}
 
 ## The Bio-Dictionary (use these fragments as building blocks)
 {bio_dict}
@@ -50,7 +57,7 @@ Relationships:
 1. Always RETURN g as gene, collect(DISTINCT d.domain_id) as domains, g.species_taxon as species
 2. Always LIMIT results to 300 unless the user specifies otherwise
 3. Use only property names from the Valid Gene Properties list above
-4. For cross-species queries, filter with WHERE g.species_taxon IN [list_of_taxon_ids]
+4. Filter by species with quoted taxon IDs: WHERE g.species_taxon = '9606' for one species, WHERE g.species_taxon IN ['9606', '10090'] for several
 5. Prefer MATCH + WHERE over complex sub-queries for readability
 6. Output ONLY the Cypher query — no explanation, no markdown, no backticks
 """
@@ -62,8 +69,16 @@ def build_system_prompt() -> str:
         f"({entry['description']})"
         for concept, entry in BIO_DICTIONARY.items()
     )
+    gene_props = ", ".join(
+        f"{name} ({GENE_PROPERTY_TYPES[name]})" for name in sorted(GENE_PROPERTY_TYPES)
+    )
+    species_list = "\n".join(
+        f"- '{taxon_id}': {common_name} ({scientific_name})"
+        for taxon_id, (common_name, scientific_name) in LOADED_SPECIES.items()
+    )
     return SYSTEM_PROMPT.format(
-        gene_props=", ".join(sorted(ALLOWED_GENE_PROPERTIES)),
+        gene_props=gene_props,
+        species_list=species_list,
         bio_dict=bio_dict_text,
     )
 
@@ -90,8 +105,10 @@ def generate_cypher(nl_query: str, retry_context: str = "") -> dict:
         raise ValueError(f"Empty response from LLM (stop_reason={response.stop_reason})")
     cypher = response.content[0].text.strip()
 
-    # Validate before returning
+    # Validate before returning. The validator also quotes integer taxon IDs,
+    # so the query to run is the one it hands back.
     validation = validate_cypher(cypher)
+    cypher = validation["cypher"]
     if not validation["valid"]:
         return {"cypher": cypher, "success": False, "error": validation["error"]}
 
