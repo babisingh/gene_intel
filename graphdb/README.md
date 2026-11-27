@@ -35,16 +35,29 @@ registry but have no GTF file, so they are skipped, as the loader does.
 Domain annotations (UniProt and InterPro) are not part of this build. They come
 from network APIs and stay a separate step.
 
+## Deploying and rebuilding
+
+```bash
+graphdb/deploy.sh <railway project id>
+```
+
+The `neo4j` service is not connected to GitHub. Railway applies the repo's
+root `railway.json` (the web app's Dockerfile and healthcheck) to any service
+built from this repo, and new services cannot use another config file. So
+`deploy.sh` stages only the files the build needs, with this Dockerfile at the
+root, and uploads them with `railway up`. Rerun it after changing the GTF
+files, the ingestion code or `app/db/schema.py`. Pushes to GitHub do not
+rebuild the graph.
+
 ## Railway settings
 
 `neo4j` service:
 
-- Source: this repo, config file `graphdb/railway.json` (Dockerfile path,
-  watch paths, healthcheck). Only changes to the GTF files, the ingestion code,
-  the schema or this folder rebuild it.
+- Service settings: Dockerfile path `Dockerfile`, healthcheck path `/` with a
+  600 second timeout, restart on failure. No volume, no public domain.
 - `NEO4J_PASSWORD`: a generated secret.
 - `NEO4J_AUTH`: `neo4j/${{NEO4J_PASSWORD}}`
-- `PORT`: `7474`, used only by the healthcheck. No public domain.
+- `PORT`: `7474`, used only by the healthcheck.
 - Memory defaults (heap 512m, page cache 768m) are set in the Dockerfile and
   can be overridden with `NEO4J_server_memory_heap_max__size`,
   `NEO4J_server_memory_heap_initial__size` and

@@ -1,6 +1,6 @@
 # Gene-Intel graph database: Neo4j Community with the 15-species graph built in.
 #
-# Railway builds this as the `neo4j` service (settings in graphdb/railway.json).
+# Railway builds this as the `neo4j` service, uploaded by graphdb/deploy.sh.
 # The graph is part of the image, not a volume: the app only reads it, and
 # every build recreates it from backend/data/gtf with the loader's own code,
 # so there is nothing to back up. See graphdb/README.md.
