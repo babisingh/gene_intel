@@ -174,6 +174,33 @@ cd frontend && npm install && npm run dev
 pytest backend/tests/ -v
 ```
 
+## Deploying on Railway
+
+Railway runs Gene-Intel as two services in the `gene-intel` project:
+`gene_intel`, built from this repository's root `Dockerfile` (the API and the
+built frontend), and `neo4j`, the graph database, built by `graphdb/` (see
+`graphdb/README.md`).
+
+`gene_intel`'s build and deploy settings are stored on the service in Railway
+(production environment), not in this repository, because Railway is retiring
+`railway.json` (config as code). This table records what they are:
+
+| Setting | Value |
+|---|---|
+| Builder | Dockerfile |
+| Dockerfile path | `Dockerfile` |
+| Healthcheck path | `/api/health` |
+| Healthcheck timeout | 30 seconds |
+| Restart policy | On failure |
+| Maximum restart retries | 3 |
+| Watch paths | `/Dockerfile`, `/requirements.txt`, `/backend/**`, `/frontend/**`, `/scripts/**` |
+
+Pushes to `main` that change one of the watch paths deploy `gene_intel` to
+production automatically. Other pushes, such as changes only to `graphdb/` or
+the docs, do not.
+
+If you change one in the service's settings, change it here too.
+
 ## Personas
 
 - **Investor**: Plain English, drug target relevance, market framing

@@ -1,12 +1,12 @@
 #!/bin/bash
 # Starts a build of the Railway `neo4j` service from the current commit.
 #
-# The service is deployed with `railway up`, not from GitHub: Railway applies
-# the repo's root railway.json (the web app's config) to any service built
-# from this repo, and new services cannot point at another config file. The
-# upload is only graphdb/Dockerfile with GENE_INTEL_SHA filled in; the build
-# fetches the code and GTF files from GitHub at that commit, so the commit
-# must be pushed first.
+# The service is deployed with `railway up`, not from GitHub: its Dockerfile
+# path setting is `Dockerfile`, so built from GitHub it would build the
+# repo's root Dockerfile, which is the web app. The upload is only
+# graphdb/Dockerfile with GENE_INTEL_SHA filled in; the build fetches the code
+# and GTF files from GitHub at that commit, so the commit must be pushed
+# first.
 #
 # The build takes a while: it parses every GTF file, imports the graph and
 # builds the indexes. The running database keeps serving until the new one
