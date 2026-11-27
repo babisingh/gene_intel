@@ -16,6 +16,20 @@ import type {
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
+/**
+ * FastAPI sends errors as {"detail": "..."}. Show that text, not the raw JSON;
+ * anything else (request validation lists, a proxy's error page) is shown as it came.
+ */
+function errorDetail(body: string): string {
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
+    if (typeof detail === 'string') return detail
+  } catch {
+    // Not JSON: fall through to the raw body.
+  }
+  return body
+}
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit,
@@ -27,7 +41,7 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(`API ${response.status}: ${errorText}`)
+    throw new Error(`API ${response.status}: ${errorDetail(errorText)}`)
   }
 
   return response.json() as Promise<T>
