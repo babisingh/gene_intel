@@ -61,6 +61,19 @@ def execute_search_cypher(
     return results
 
 
+def relationship_type_exists(session, rel_type: str) -> bool:
+    """
+    True if the database lists rel_type among its relationship types.
+
+    Used after a search finds no genes: a query that needs HAS_DOMAIN cannot
+    match anything while no domain annotations are loaded.
+    """
+    records = session.run(
+        "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+    )
+    return any(record["relationshipType"] == rel_type for record in records)
+
+
 def build_edges_from_results(session, gene_ids: List[str]) -> List[dict]:
     """
     Given a list of gene_ids returned by a search, fetch CO_LOCATED_WITH

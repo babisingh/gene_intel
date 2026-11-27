@@ -3,6 +3,7 @@
  */
 
 import type { Persona } from '../../types'
+import { Explanation } from '../Explanation'
 
 interface ExplainerCardProps {
   explanation: string
@@ -28,8 +29,8 @@ export function ExplainerCard({ explanation, persona, cypherUsed }: ExplainerCar
         <span className="flex-1 border-t border-gray-700" />
       </div>
 
-      <div className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
-        {explanation}
+      <div className="text-sm text-gray-300 leading-relaxed">
+        <Explanation text={explanation} />
       </div>
 
       {persona === 'researcher' && cypherUsed && (

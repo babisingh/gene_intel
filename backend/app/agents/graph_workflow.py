@@ -12,6 +12,10 @@ failed_step naming the step, and api/search.py turns that into an error status.
 If Claude declines the question in step 1, the run ends the same way, with
 DECLINED_MESSAGE as the error.
 
+If step 2 finds no genes, step 3 does not call Claude: the explanation is
+NO_RESULTS_MESSAGE, or NO_DOMAINS_MESSAGE when the query needs protein domains
+and the database has none loaded.
+
 Connected to:
   - agent_a_semantic.py: NL → Cypher
   - agent_c_explainer.py: results → explanation
@@ -22,11 +26,16 @@ Connected to:
 from typing import TypedDict, Optional, List
 from langgraph.graph import StateGraph, END
 import logging
+import re
 
 from app.agents.agent_a_semantic import generate_cypher_with_retry
 from app.agents.agent_c_explainer import explain_results
 from app.agents.llm_reply import LLMRefusalError
-from app.db.queries.search_queries import execute_search_cypher, build_edges_from_results
+from app.db.queries.search_queries import (
+    build_edges_from_results,
+    execute_search_cypher,
+    relationship_type_exists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +44,20 @@ DECLINED_MESSAGE = (
     "The AI model declined to answer this question, so nothing was searched. "
     "Try rephrasing it."
 )
+
+# Shown instead of an explanation when a search finds no genes.
+NO_RESULTS_MESSAGE = (
+    "No genes matched this search. Try a broader question, or fewer conditions."
+)
+NO_DOMAINS_MESSAGE = (
+    "No genes matched this search. It looks for protein domains, and the "
+    "database has no domain annotations loaded yet, so searches by domain "
+    "(kinases, proteases, transcription factors and similar) cannot find "
+    "anything for now."
+)
+
+# A query that needs domain annotations.
+_USES_DOMAINS = re.compile(r"HAS_DOMAIN|:\s*Domain\b")
 
 
 class SearchState(TypedDict):
@@ -53,6 +76,7 @@ class SearchState(TypedDict):
     success: bool
     error: Optional[str]
     failed_step: Optional[str]  # "agent_a" or "neo4j" if that step failed
+    missing_data: Optional[str]  # "domains" if an empty result needed domains the database lacks
 
 
 def agent_a_node(state: SearchState) -> SearchState:
@@ -99,7 +123,12 @@ def neo4j_node(state: SearchState, driver) -> SearchState:
             gene_ids = [r.get("gene_id") for r in raw_results if r.get("gene_id")]
             edges = build_edges_from_results(session, gene_ids)
 
-        return {**state, "raw_results": raw_results, "edges": edges}
+            missing_data = None
+            if not raw_results and _USES_DOMAINS.search(state["cypher"]):
+                if not relationship_type_exists(session, "HAS_DOMAIN"):
+                    missing_data = "domains"
+
+        return {**state, "raw_results": raw_results, "edges": edges, "missing_data": missing_data}
     except Exception as exc:
         logger.error("Neo4j execution error: %s", exc)
         return {
@@ -114,6 +143,15 @@ def neo4j_node(state: SearchState, driver) -> SearchState:
 
 def agent_c_node(state: SearchState) -> SearchState:
     """Node 3: Generate explanation for results."""
+    if not state["raw_results"]:
+        # Nothing to explain. Asked about an empty result, Claude made up
+        # biological reasons for it (2026-11-27), so say plainly what happened.
+        if state.get("missing_data") == "domains":
+            explanation = NO_DOMAINS_MESSAGE
+        else:
+            explanation = NO_RESULTS_MESSAGE
+        return {**state, "explanation": explanation, "success": True, "error": None}
+
     try:
         explanation = explain_results(
             nl_query=state["nl_query"],
@@ -191,6 +229,7 @@ async def run_search(
         "success": False,
         "error": None,
         "failed_step": None,
+        "missing_data": None,
     }
 
     final_state = await workflow.ainvoke(initial_state)

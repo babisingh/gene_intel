@@ -16,6 +16,7 @@ import { GraphControls } from './components/GraphView/GraphControls'
 import { AnalysisDrawer } from './components/AnalysisDrawer/AnalysisDrawer'
 import { PersonaSelector } from './components/PersonaSelector'
 import { IngestionStatus } from './components/IngestionStatus'
+import { Explanation } from './components/Explanation'
 
 export default function App() {
   const { results, isLoading, error } = useSearchStore()
@@ -54,7 +55,7 @@ export default function App() {
       {/* Results explanation (non-researcher modes) */}
       {results?.explanation && (
         <div className="mx-6 mt-4 px-4 py-3 bg-blue-900/20 border border-blue-800/50 rounded-lg text-sm text-gray-300 leading-relaxed">
-          {results.explanation}
+          <Explanation text={results.explanation} />
         </div>
       )}
 
