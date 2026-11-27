@@ -5,28 +5,37 @@
 # every build recreates it from backend/data/gtf with the loader's own code,
 # so there is nothing to back up. See graphdb/README.md.
 #
+# The build needs no context. The ingestion code, GTF files and build scripts
+# are fetched from GitHub at GENE_INTEL_SHA, a pushed commit; deploy.sh fills
+# it in. (Railway's upload limit is smaller than the GTF files.)
+#
 # The data directory is /graph, not /data: the base image declares
 # VOLUME /data, and build-time contents of a declared volume are not
 # reliably kept.
+ARG GENE_INTEL_REPO=babisingh/gene_intel
+ARG GENE_INTEL_SHA
 
-# 1. Export the graph as CSV with the app's ingestion code
+# 1. Fetch the sources and export the graph as CSV with the app's ingestion code
 FROM python:3.11-slim AS csv
-WORKDIR /src
+ARG GENE_INTEL_REPO
+ARG GENE_INTEL_SHA
+RUN test -n "$GENE_INTEL_SHA" || { echo "GENE_INTEL_SHA build arg is required" >&2; exit 1; }
+ADD https://codeload.github.com/${GENE_INTEL_REPO}/tar.gz/${GENE_INTEL_SHA} /tmp/src.tar.gz
+RUN mkdir /src && tar -xzf /tmp/src.tar.gz -C /src --strip-components=1 && rm /tmp/src.tar.gz
 RUN pip install --no-cache-dir "pydantic-settings>=2.2.0" "neo4j>=5.19.0"
-COPY backend/app ./backend/app
-COPY backend/data/gtf ./backend/data/gtf
-COPY graphdb/export_csv.py ./graphdb/
-RUN python graphdb/export_csv.py --backend /src/backend --out /csv
+RUN python /src/graphdb/export_csv.py --backend /src/backend --out /csv
 
 # 2. Bulk import, create the app's indexes, check every count
 FROM neo4j:5.26.32-community AS store
 ENV NEO4J_SHUTDOWN_TIMEOUT=900 HEAP_SIZE=2g
 COPY --from=csv /csv /csv
-COPY graphdb/build_db.sh /build_db.sh
+COPY --from=csv /src/graphdb/build_db.sh /build_db.sh
 RUN bash /build_db.sh /csv /graph && rm -rf /csv
 
 # 3. Runtime image. Memory settings are defaults; Railway variables override.
 FROM neo4j:5.26.32-community
+ARG GENE_INTEL_SHA
+LABEL org.opencontainers.image.revision=$GENE_INTEL_SHA
 COPY --from=store --chown=neo4j:neo4j /graph /graph
 ENV NEO4J_server_directories_data=/graph \
     NEO4J_server_default__listen__address=:: \

@@ -44,10 +44,11 @@ graphdb/deploy.sh <railway project id>
 The `neo4j` service is not connected to GitHub. Railway applies the repo's
 root `railway.json` (the web app's Dockerfile and healthcheck) to any service
 built from this repo, and new services cannot use another config file. So
-`deploy.sh` stages only the files the build needs, with this Dockerfile at the
-root, and uploads them with `railway up`. Rerun it after changing the GTF
-files, the ingestion code or `app/db/schema.py`. Pushes to GitHub do not
-rebuild the graph.
+`deploy.sh` uploads only this Dockerfile with `railway up`, with
+`GENE_INTEL_SHA` set to the current commit, and the build fetches the code and
+GTF files from GitHub at that commit (Railway's upload limit is smaller than
+the GTF files). Push first, then rerun it after changing the GTF files, the
+ingestion code or `app/db/schema.py`. Pushes alone do not rebuild the graph.
 
 ## Railway settings
 
@@ -73,6 +74,6 @@ rebuild the graph.
 ## Running it locally
 
 ```bash
-docker build -f graphdb/Dockerfile -t gene-intel-graph .
+docker build --build-arg GENE_INTEL_SHA="$(git rev-parse HEAD)" -t gene-intel-graph graphdb
 docker run --rm -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/choose-a-password gene-intel-graph
 ```
