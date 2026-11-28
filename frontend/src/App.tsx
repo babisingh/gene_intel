@@ -59,8 +59,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Graph view */}
-      <main className="flex-1 relative overflow-hidden">
+      {/*
+        Graph view. min-h-96 keeps the graph usable when a long explanation or
+        error sits above it: the page scrolls instead of the graph shrinking
+        to nothing.
+      */}
+      <main className="flex-1 relative overflow-hidden min-h-96">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 z-10">
             <div className="flex flex-col items-center gap-3">
@@ -75,7 +79,16 @@ export default function App() {
           </div>
         )}
 
-        <GraphView nodes={nodes} edges={edges} />
+        {/*
+          GraphView and the sigma container in it take their height from
+          h-full. main's height comes from flex-1 in a column that has only a
+          min-height, so a percentage height directly inside main does not
+          resolve and sigma would get a 0 px container. This box fills main by
+          absolute positioning, which gives them a height to resolve against.
+        */}
+        <div className="absolute inset-0">
+          <GraphView nodes={nodes} edges={edges} />
+        </div>
         <GraphControls nodes={nodes} />
       </main>
 
