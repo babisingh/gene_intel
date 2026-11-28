@@ -63,6 +63,31 @@ def test_gene_detail_includes_the_explanation(monkeypatch):
     assert response.json()["explanation"] == "BRCA2 repairs DNA."
 
 
+def test_gene_detail_names_the_transcript_its_values_describe(monkeypatch):
+    for key, value in {"cds_length": 10254, "exon_count": 27,
+                       "canonical_transcript_id": "ENST00000380152",
+                       "canonical_source": "Ensembl_canonical"}.items():
+        monkeypatch.setitem(DETAIL["gene"], key, value)
+
+    response = get_gene(monkeypatch, lambda gene_data, persona="student": "ok")
+
+    assert response.status_code == 200, response.json()
+    body = response.json()["gene"]
+    assert body["cds_length"] == 10254
+    assert body["exon_count"] == 27
+    assert body["canonical_transcript_id"] == "ENST00000380152"
+    assert body["canonical_source"] == "Ensembl_canonical"
+
+
+def test_gene_detail_from_an_older_graph_has_no_canonical_transcript(monkeypatch):
+    response = get_gene(monkeypatch, lambda gene_data, persona="student": "ok")
+
+    assert response.status_code == 200, response.json()
+    body = response.json()["gene"]
+    assert body["canonical_transcript_id"] is None
+    assert body["canonical_source"] is None
+
+
 def test_gene_detail_comes_back_when_claude_declines_to_explain_it(monkeypatch):
     def declined(gene_data, persona="student"):
         raise LLMRefusalError("Claude declined to answer (stop_reason=refusal)")

@@ -4,6 +4,7 @@
  */
 
 import type { GeneNode } from '../../types'
+import { geneValuesBasis } from '../../utils/geneValues'
 import { SPECIES_COLORS, DEFAULT_NODE_COLOR } from './sigmaConfig'
 
 interface NodeTooltipProps {
@@ -14,6 +15,7 @@ interface NodeTooltipProps {
 
 export function NodeTooltip({ gene, x, y }: NodeTooltipProps) {
   const color = SPECIES_COLORS[gene.species_taxon] ?? DEFAULT_NODE_COLOR
+  const basis = geneValuesBasis(gene)
 
   return (
     <div
@@ -30,8 +32,11 @@ export function NodeTooltip({ gene, x, y }: NodeTooltipProps) {
       <div className="text-gray-400 space-y-0.5">
         <div>{gene.species_name}</div>
         <div>chr{gene.chromosome}:{gene.start.toLocaleString()}–{gene.end.toLocaleString()}</div>
-        {gene.cds_length && <div>CDS: {gene.cds_length.toLocaleString()} bp</div>}
-        {gene.exon_count && <div>Exons: {gene.exon_count}</div>}
+        {gene.cds_length ? <div>CDS: {gene.cds_length.toLocaleString()} bp</div> : null}
+        {gene.exon_count ? <div>Exons: {gene.exon_count}</div> : null}
+        {basis && (gene.cds_length || gene.exon_count) ? (
+          <div className="text-gray-500">({basis})</div>
+        ) : null}
         {gene.domains.length > 0 && (
           <div className="text-blue-400 truncate max-w-48">
             {gene.domains.slice(0, 3).join(', ')}

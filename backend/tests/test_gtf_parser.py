@@ -22,7 +22,15 @@ def test_ensembl_gene_record_has_expected_keys(sample_human_gtf):
     assert "strand" in gene
     assert "attributes" in gene
     assert "length" in gene
-    assert gene["length"] == gene["end"] - gene["start"]
+    # Coordinates are 1-based and include both ends
+    assert gene["length"] == gene["end"] - gene["start"] + 1
+
+
+def test_length_counts_both_ends(tmp_path):
+    path = tmp_path / "codon.gtf"
+    path.write_text('1\ttest\tstart_codon\t100\t102\t.\t+\t0\tgene_id "G"; transcript_id "T";\n')
+    (record,) = parse_gtf_streaming(str(path), "ensembl_gtf")
+    assert record["length"] == 3
 
 
 def test_parse_ncbi_gff3_yields_records(sample_ecoli_gff3):
@@ -53,6 +61,14 @@ def test_parse_ensembl_col9_collects_db_xref():
     attrs = parse_ensembl_col9(col9)
     assert isinstance(attrs["db_xref"], list)
     assert len(attrs["db_xref"]) == 2
+
+
+def test_parse_ensembl_col9_collects_every_tag():
+    # Only the last tag used to survive, and the canonical tag is often not last
+    col9 = ('gene_id "ENSG001"; transcript_id "ENST001"; tag "basic"; '
+            'tag "Ensembl_canonical"; tag "MANE_Select";')
+    attrs = parse_ensembl_col9(col9)
+    assert attrs["tag"] == ["basic", "Ensembl_canonical", "MANE_Select"]
 
 
 def test_parse_ncbi_col9_extracts_fields():

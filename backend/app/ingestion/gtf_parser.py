@@ -59,8 +59,9 @@ def parse_gtf_streaming(filepath: str, dialect: str) -> Generator[Dict, None, No
                 "end":          int(end),
                 "strand":       strand,
                 "attributes":   attrs,
-                # length is always end - start in GTF (0-based half-open)
-                "length":       int(end) - int(start),
+                # GTF and GFF3 coordinates are 1-based and include both
+                # ends, so a CDS row from 100 to 102 is one 3 bp codon.
+                "length":       int(end) - int(start) + 1,
             }
 
 
@@ -85,9 +86,11 @@ def parse_ensembl_col9(col9: str) -> Dict:
             val = parts[1].strip().strip('"')
             if not key:
                 continue
-            # db_xref can appear multiple times — collect as list
-            if key == "db_xref":
-                attrs.setdefault("db_xref", []).append(val)
+            # db_xref and tag can appear several times: collect them as
+            # lists. A transcript's tags include "Ensembl_canonical", which
+            # is often not its last tag.
+            if key in ("db_xref", "tag"):
+                attrs.setdefault(key, []).append(val)
             else:
                 attrs[key] = val
 

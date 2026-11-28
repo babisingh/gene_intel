@@ -29,11 +29,16 @@ class GeneNode:
     strand: str
     length: int
     species_taxon: str
+    # The next five describe the canonical transcript, not all transcripts
+    # (see feature_extractor.py).
     cds_length: int = 0
     exon_count: int = 0
     utr5_length: int = 0
     utr3_length: int = 0
     utr_cds_ratio: Optional[float] = None
+    canonical_transcript_id: Optional[str] = None  # None: no transcripts
+    # "Ensembl_canonical" | "longest_cds" | "longest_transcript"
+    canonical_source: Optional[str] = None
 
 
 @dataclass
@@ -42,8 +47,9 @@ class TranscriptNode:
     gene_id: str             # FK to GeneNode
     type: str                # "mRNA" | "lncRNA" | "ncRNA"
     exon_count: int = 0
+    cds_length: int = 0      # bp, summed over this transcript's CDS rows
     support_level: Optional[int] = None
-    is_canonical: bool = False
+    is_canonical: bool = False  # the one transcript per gene the gene's values describe
 
 
 @dataclass

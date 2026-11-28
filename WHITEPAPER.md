@@ -166,13 +166,21 @@ The central node. One per gene locus per species.
 | `chromosome` | String | Chromosome / scaffold name |
 | `start`, `end` | Long | Genomic coordinates (1-based) |
 | `strand` | String | +/- |
-| `length` | Long | Genomic span (end − start) |
-| `cds_length` | Long | Total coding sequence length (bp) |
-| `exon_count` | Int | Maximum exon count across transcripts |
-| `utr5_length` | Long | Total 5′ UTR length |
-| `utr3_length` | Long | Total 3′ UTR length |
-| `utr_cds_ratio` | Float | (utr5 + utr3) / cds — regulatory complexity proxy |
+| `length` | Long | Genomic span (end - start + 1: GTF coordinates include both ends) |
+| `cds_length` | Long | Coding sequence length (bp) of the canonical transcript (GTF CDS rows exclude the stop codon) |
+| `exon_count` | Int | Exon count of the canonical transcript |
+| `utr5_length` | Long | 5′ UTR length of the canonical transcript |
+| `utr3_length` | Long | 3′ UTR length of the canonical transcript |
+| `utr_cds_ratio` | Float | (utr5 + utr3) / cds of the canonical transcript: regulatory complexity proxy |
+| `canonical_transcript_id` | String | The transcript the five values above describe |
+| `canonical_source` | String | `Ensembl_canonical` (tagged in the GTF), else `longest_cds` or `longest_transcript` |
 | `species_taxon` | String | FK to :Species |
+
+The canonical transcript is the one the GTF tags `Ensembl_canonical`. Where no
+transcript of a gene is tagged (all of C. elegans, most chicken and frog
+genes), it is the transcript with the longest CDS, then the longest spliced
+length, then the smallest ID. Gene values are never summed over transcripts:
+a sum counts every shared exon once per isoform.
 
 #### `:Transcript`
 Individual mRNA isoform.
@@ -183,8 +191,9 @@ Individual mRNA isoform.
 | `gene_id` | String | Parent gene |
 | `type` | String | mRNA / lncRNA / ncRNA |
 | `exon_count` | Int | Exon count for this isoform |
+| `cds_length` | Long | Coding sequence length (bp) of this isoform |
 | `support_level` | Int | Ensembl TSL (1=best) |
-| `is_canonical` | Boolean | Longest/best-supported isoform |
+| `is_canonical` | Boolean | True for the one isoform per gene that the gene's values describe |
 
 #### `:Feature`
 Sub-transcript element — exon, CDS, UTR, start/stop codon.
@@ -253,8 +262,10 @@ gtf_parser.py                → streaming generator (never loads full file)
        │
        ▼
 feature_extractor.py         → accumulates genes, transcripts, features
-                               computes: cds_length, utr5/3_length,
-                               exon_count, utr_cds_ratio, feature ranks
+                               computes per transcript: cds_length,
+                               utr5/3_length, exon_count, feature ranks;
+                               copies each gene's canonical transcript
+                               values (and utr_cds_ratio) to the gene
        │
        ▼
 neighborhood_builder.py      → sliding-window CO_LOCATED_WITH edges

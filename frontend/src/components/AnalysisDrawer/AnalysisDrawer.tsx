@@ -14,6 +14,7 @@
 import { useUiStore } from '../../store/uiStore'
 import { useSearchStore } from '../../store/searchStore'
 import { useGeneDetail } from '../../hooks/useGeneDetail'
+import { geneValuesBasis } from '../../utils/geneValues'
 import { GeneLocus } from './GeneLocus'
 import { DomainBadges } from './DomainBadges'
 import { ExplainerCard } from './ExplainerCard'
@@ -31,6 +32,7 @@ export function AnalysisDrawer() {
 
   const gene = detail?.gene ?? selectedGene
   const features = detail?.features ?? []
+  const basis = geneValuesBasis(gene)
 
   return (
     <>
@@ -93,6 +95,14 @@ export function AnalysisDrawer() {
                 <span className="text-gray-500">UTR/CDS ratio</span>
                 <p className="text-white mt-0.5">{gene.utr_cds_ratio.toFixed(3)}</p>
               </div>
+            )}
+            {basis && (
+              <p className="col-span-2 text-xs text-gray-500">
+                CDS length, exons and UTR/CDS ratio: {basis}
+                {gene.canonical_transcript_id && (
+                  <span className="font-mono"> {gene.canonical_transcript_id}</span>
+                )}
+              </p>
             )}
           </div>
 

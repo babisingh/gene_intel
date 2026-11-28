@@ -175,18 +175,21 @@ GENE_PROPERTY_TYPES = {
     "end": "integer",
     "strand": "string",           # '+' or '-'
     "length": "integer",
+    # cds_length to utr_cds_ratio describe the gene's canonical transcript
     "cds_length": "integer",
     "exon_count": "integer",
     "utr5_length": "integer",
     "utr3_length": "integer",
     "utr_cds_ratio": "float",
+    "canonical_transcript_id": "string",
+    "canonical_source": "string",  # 'Ensembl_canonical', 'longest_cds', 'longest_transcript'
     "species_taxon": "string",    # NCBI taxon ID, e.g. '9606'
 }
 
 ALLOWED_GENE_PROPERTIES = set(GENE_PROPERTY_TYPES)
 
 ALLOWED_TRANSCRIPT_PROPERTIES = {
-    "transcript_id", "type", "exon_count", "support_level", "is_canonical",
+    "transcript_id", "type", "exon_count", "cds_length", "support_level", "is_canonical",
 }
 
 ALLOWED_DOMAIN_PROPERTIES = {"domain_id", "source", "description"}

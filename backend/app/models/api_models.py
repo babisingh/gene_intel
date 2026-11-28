@@ -22,9 +22,14 @@ class GeneNode(BaseModel):
     species_taxon: str
     species_name: str
     biotype: str
+    # cds_length, exon_count and utr_cds_ratio describe the canonical
+    # transcript. Without canonical_source (a graph built before it existed)
+    # they are sums over all of the gene's transcripts.
     cds_length: Optional[int] = None
     exon_count: Optional[int] = None
     utr_cds_ratio: Optional[float] = None
+    canonical_transcript_id: Optional[str] = None
+    canonical_source: Optional[str] = None  # "Ensembl_canonical" | "longest_cds" | "longest_transcript"
     chromosome: str
     start: int
     end: int

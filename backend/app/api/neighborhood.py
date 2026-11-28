@@ -21,6 +21,8 @@ def _to_gene_node(raw: dict) -> GeneNode:
         cds_length=raw.get("cds_length"),
         exon_count=raw.get("exon_count"),
         utr_cds_ratio=raw.get("utr_cds_ratio"),
+        canonical_transcript_id=raw.get("canonical_transcript_id"),
+        canonical_source=raw.get("canonical_source"),
         chromosome=str(raw.get("chromosome", "")),
         start=raw.get("start", 0),
         end=raw.get("end", 0),
