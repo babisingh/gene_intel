@@ -3,11 +3,13 @@
 # Railway builds this as the `neo4j` service, uploaded by graphdb/deploy.sh.
 # The graph is part of the image, not a volume: the app only reads it, and
 # every build recreates it from backend/data/gtf with the loader's own code,
-# so there is nothing to back up. See graphdb/README.md.
+# plus the protein domains in graphdb/domains, so there is nothing to back
+# up. See graphdb/README.md.
 #
-# The build needs no context. The ingestion code, GTF files and build scripts
-# are fetched from GitHub at GENE_INTEL_SHA, a pushed commit; deploy.sh fills
-# it in. (Railway's upload limit is smaller than the GTF files.)
+# The build needs no context. The ingestion code, GTF and domain files and
+# build scripts are fetched from GitHub at GENE_INTEL_SHA, a pushed commit;
+# deploy.sh fills it in. (Railway's upload limit is smaller than the GTF
+# files.)
 #
 # The data directory is /graph, not /data: the base image declares
 # VOLUME /data, and build-time contents of a declared volume are not

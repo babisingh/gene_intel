@@ -1,12 +1,18 @@
 """
 Export the Gene-Intel graph as CSV files for `neo4j-admin database import`.
 
-This writes the same graph that `python -m app.ingestion.run_ingest --all
---step gtf` would write over Bolt. It calls the loader's own
-`ingest_species()` for every species, with the batch writers swapped for
-functions that write CSV rows, so parsing, species metadata and domain logic
-all come from the loader itself. The relationship rules follow the loader's
+This writes the graph that `python -m app.ingestion.run_ingest --all
+--step gtf` would write over Bolt, plus protein domains. It calls the
+loader's own `ingest_species()` for every species, with the batch writers
+swapped for functions that write CSV rows, so parsing and species metadata
+come from the loader itself. The relationship rules follow the loader's
 Cypher: a relationship is only written when the node it MATCHes exists.
+
+Protein domains (Domain nodes and HAS_DOMAIN edges) come from the files in
+graphdb/domains, which fetch_domains.py makes from Ensembl and UniProt. They
+are committed, so the build reads them and fetches nothing. The loader's
+own domain step (`--step domains`) does not run here, and the loader does
+not read these files.
 
 Usage (inside the image build, see graphdb/Dockerfile):
     python graphdb/export_csv.py --backend /src/backend --out /csv
@@ -26,11 +32,14 @@ from the loader's MERGE behaviour.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import shutil
 import sys
 from multiprocessing import get_context
+
+DOMAINS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "domains")
 
 NODE_COLUMNS = {
     "species": [("taxon_id", "ID(Species)"), ("name", ""), ("common_name", ""),
@@ -87,6 +96,41 @@ def header(kind: str) -> str:
                     for name, typ in NODE_COLUMNS[kind])
 
 
+def _check_header(path: str, line: str, expected: list) -> None:
+    if line.rstrip("\n").split("\t") != expected:
+        raise SystemExit(f"{path}: columns {line.strip()!r}, expected {expected}")
+
+
+def read_domain_names(domains_dir: str) -> dict:
+    """{(source, accession): description} from names.tsv.gz."""
+    path = os.path.join(domains_dir, "names.tsv.gz")
+    names = {}
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        _check_header(path, f.readline(), ["source", "accession", "description"])
+        for line in f:
+            source, accession, description = line.rstrip("\n").split("\t")
+            names[(source, accession)] = description
+    return names
+
+
+def read_gene_domains(domains_dir: str, taxon_id: str, names: dict) -> list:
+    """One species' rows from <taxon>.tsv.gz, in the shape the loader's
+    domain parsers hand to write_domains_batch(). The domain ID is
+    `Source:accession`, as the BioMart parser writes it."""
+    path = os.path.join(domains_dir, f"{taxon_id}.tsv.gz")
+    if not os.path.exists(path):
+        return []
+    rows = []
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        _check_header(path, f.readline(), ["gene_id", "source", "accession"])
+        for line in f:
+            gene_id, source, accession = line.rstrip("\n").split("\t")
+            rows.append({"gene_id": gene_id, "domain_id": f"{source}:{accession}",
+                         "source": source,
+                         "description": names.get((source, accession), "")})
+    return rows
+
+
 class _NullSession:
     def __enter__(self):
         return self
@@ -104,8 +148,9 @@ class _NullDriver:
 
 
 def _export_one(job):
-    """Run the loader's ingest_species() for one species, writing CSV parts."""
-    order, taxon_id, parts_dir = job
+    """Run the loader's ingest_species() for one species, writing CSV parts,
+    then add the species' domains from domains_dir."""
+    order, taxon_id, parts_dir, domains_dir = job
 
     from app.ingestion import run_ingest
 
@@ -198,6 +243,15 @@ def _export_one(job):
 
     run_ingest.ingest_species(taxon_id, _NullDriver())
 
+    # Domains from graphdb/domains. Rows for genes that the loader did not
+    # write are dropped before the MERGE, so every Domain node has a gene.
+    gene_domains = read_gene_domains(domains_dir, taxon_id, read_domain_names(domains_dir))
+    known = [d for d in gene_domains if d["gene_id"] in gene_ids]
+    if len(known) < len(gene_domains):
+        print(f"taxon {taxon_id}: skipped {len(gene_domains) - len(known)} domain rows "
+              "for genes that are not in the graph", flush=True)
+    domains_batch(None, known)
+
     for start, end, distance in edges.values():
         write_rel("co_located_with", start, end, distance)
     for gene_id, domain_id in sorted(has_domain):
@@ -222,7 +276,13 @@ def main():
     ap.add_argument("--backend", required=True, help="path to the repo's backend/ folder")
     ap.add_argument("--out", required=True, help="output folder for the CSV files")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--domains", default=DOMAINS_DIR,
+                    help="folder with the domain files (default: graphdb/domains)")
     args = ap.parse_args()
+
+    domains_dir = os.path.abspath(args.domains)
+    if not os.path.isfile(os.path.join(domains_dir, "names.tsv.gz")):
+        raise SystemExit(f"No domain files in {domains_dir}. See graphdb/fetch_domains.py.")
 
     backend = os.path.abspath(args.backend)
     # Same locations the loader reads, set before app.config is imported.
@@ -237,7 +297,7 @@ def main():
     parts_dir = os.path.join(out, "_parts")
     os.makedirs(parts_dir, exist_ok=True)
 
-    jobs = [(i, taxon, parts_dir) for i, taxon in enumerate(SPECIES_REGISTRY)]
+    jobs = [(i, taxon, parts_dir, domains_dir) for i, taxon in enumerate(SPECIES_REGISTRY)]
     with get_context("fork").Pool(args.workers, maxtasksperchild=1) as pool:
         results = pool.map(_export_one, jobs, chunksize=1)
 
