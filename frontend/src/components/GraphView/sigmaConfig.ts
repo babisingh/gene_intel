@@ -8,9 +8,14 @@
  *     from a perceptually-distinct palette
  *   - Edge types: solid lines = CO_LOCATED_WITH, dashed = HAS_DOMAIN_MATCH
  *   - Node size encodes CDS length (larger = more protein coding content)
+ *   - Labels are light grey, readable on the dark page; a hovered node's
+ *     label stays dark on the white box sigma draws behind it
  *
  * Connected to: GraphView.tsx (consumes this config to initialise the Sigma instance)
  */
+
+import { drawDiscNodeHover } from 'sigma/rendering'
+import type { NodeHoverDrawingFunction } from 'sigma/rendering'
 
 export const SPECIES_COLORS: Record<string, string> = {
   '9606':   '#4C9BE8',  // Human — blue
@@ -67,3 +72,17 @@ export const EDGE_STYLES = {
     size: 2,
   },
 }
+
+// Node labels. Sigma's default is black, which cannot be read on the page's
+// near-black background (bg-gray-950).
+export const LABEL_COLOR = '#E5E7EB' // Tailwind gray-200
+
+// Sigma draws a hovered node's label on a white box, in the same colour as the
+// other labels. Keep that one dark so it stays readable on the box.
+const HOVER_LABEL_COLOR = '#111827' // Tailwind gray-900
+
+export const drawNodeHover: NodeHoverDrawingFunction = (context, data, settings) =>
+  drawDiscNodeHover(context, data, {
+    ...settings,
+    labelColor: { color: HOVER_LABEL_COLOR },
+  })

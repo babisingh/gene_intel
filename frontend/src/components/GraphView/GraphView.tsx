@@ -16,7 +16,7 @@ import Graph from 'graphology'
 import Sigma from 'sigma'
 import { circular } from 'graphology-layout'
 import type { GeneNode, GraphEdge } from '../../types'
-import { getNodeColor, getNodeSize, EDGE_STYLES } from './sigmaConfig'
+import { getNodeColor, getNodeSize, EDGE_STYLES, LABEL_COLOR, drawNodeHover } from './sigmaConfig'
 import { useSearchStore } from '../../store/searchStore'
 import { useUiStore } from '../../store/uiStore'
 
@@ -89,6 +89,8 @@ export function GraphView({ nodes, edges }: GraphViewProps) {
     const sigma = new Sigma(graph, containerRef.current, {
       renderEdgeLabels: false,
       allowInvalidContainer: true,
+      labelColor: { color: LABEL_COLOR },
+      defaultDrawNodeHover: drawNodeHover,
     })
     sigmaRef.current = sigma
 
