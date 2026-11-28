@@ -7,12 +7,14 @@ differ; this test finds the mismatch before a build does.
 import importlib.util
 import os
 
+import pytest
+
 from app.ingestion.feature_extractor import extract_features
 from app.ingestion.gtf_parser import parse_gtf_streaming
 
 REPO = os.path.join(os.path.dirname(__file__), "..", "..")
 EXPORT_CSV = os.path.join(REPO, "graphdb", "export_csv.py")
-FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "sample_isoforms.gtf")
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
 def load_export_csv():
@@ -22,10 +24,16 @@ def load_export_csv():
     return module
 
 
-def test_export_columns_match_the_extractor():
+# The GFF3 file's transcripts and features for E. coli are built by the
+# extractor, not read from transcript rows, so they are checked as well.
+@pytest.mark.parametrize("fixture, dialect, taxon", [
+    ("sample_isoforms.gtf", "ensembl_gtf", "9606"),
+    ("sample_ecoli.gff3", "ncbi_gff3", "511145"),
+])
+def test_export_columns_match_the_extractor(fixture, dialect, taxon):
     columns = load_export_csv().NODE_COLUMNS
     genes, transcripts, features = extract_features(
-        parse_gtf_streaming(FIXTURE, "ensembl_gtf"), "9606")
+        parse_gtf_streaming(os.path.join(FIXTURES, fixture), dialect), taxon)
     for kind, rows in (("genes", genes), ("transcripts", transcripts),
                        ("features", features)):
         names = {name for name, _ in columns[kind]}

@@ -23,12 +23,22 @@ RELEVANT_FEATURE_TYPES = frozenset({
     "start_codon", "stop_codon",
 })
 
+# NCBI GFF3 gives a non-coding gene's RNA a row of its own type, with the
+# gene as Parent and the exons as its children. feature_extractor.py reads
+# these rows as transcripts. Ensembl GTF calls every transcript "transcript".
+# These are the types in E. coli's file, the only GFF3 one; it has no mRNA
+# rows, as its CDS rows hang off the gene.
+GFF3_RNA_TYPES = frozenset({"tRNA", "rRNA", "ncRNA"})
+
 
 def parse_gtf_streaming(filepath: str, dialect: str) -> Generator[Dict, None, None]:
     """
     Yields one parsed record per GTF/GFF3 line.
     Handles both .gtf and .gtf.gz files transparently.
     """
+    relevant = RELEVANT_FEATURE_TYPES
+    if dialect == "ncbi_gff3":
+        relevant = RELEVANT_FEATURE_TYPES | GFF3_RNA_TYPES
     opener = gzip.open if filepath.endswith(".gz") else open
     with opener(filepath, "rt") as f:
         for line in f:
@@ -43,7 +53,7 @@ def parse_gtf_streaming(filepath: str, dialect: str) -> Generator[Dict, None, No
             chrom, source, f_type, start, end, score, strand, frame, col9 = parts
 
             # Only process feature types we care about
-            if f_type not in RELEVANT_FEATURE_TYPES:
+            if f_type not in relevant:
                 continue
 
             attrs = (
@@ -112,6 +122,13 @@ def parse_ncbi_col9(col9: str) -> Dict:
     """
     Parses NCBI GFF3 attribute string.
     Example: ID=gene-b0001;Name=thrL;Dbxref=UniProtKB/Swiss-Prot:P0AD86,Pfam:PF01030
+
+    ID and Parent become the keys a GTF line has. ID=gene-b0001 or
+    Parent=gene-b0001 gives gene_id b0001, and ID=rna-b0202 or
+    Parent=rna-b0202 gives transcript_id rna-b0202. So an RNA row gets
+    transcript_id and gene_id, its exon gets transcript_id, and a CDS row of
+    a bacterial gene, which hangs off the gene, gets gene_id and keeps its
+    own ID (cds-...).
     """
     attrs: Dict = {}
     for field in col9.split(";"):
@@ -121,8 +138,10 @@ def parse_ncbi_col9(col9: str) -> Dict:
         key, val = field.split("=", 1)
         if key == "Dbxref":
             attrs["db_xref"] = val.split(",")
-        elif key == "ID" and val.startswith("gene-"):
-            attrs["gene_id"] = val.replace("gene-", "")
+        elif key in ("ID", "Parent") and val.startswith("gene-"):
+            attrs["gene_id"] = val[len("gene-"):]
+        elif key in ("ID", "Parent") and val.startswith("rna-"):
+            attrs["transcript_id"] = val
         elif key == "Name":
             attrs["gene_name"] = val
         else:

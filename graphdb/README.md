@@ -27,8 +27,8 @@ again.
    database so the runtime container starts fresh.
 3. The runtime stage copies the store to `/graph`.
 
-Size of the full graph: 15.7 million nodes and 17.2 million relationships
-(461,444 genes, 978,774 transcripts, 14.3 million exon/CDS/UTR/codon
+Size of the full graph: 15.8 million nodes and 17.3 million relationships
+(461,444 genes, 983,290 transcripts, 14.3 million exon/CDS/UTR/codon
 features, 1.5 million CO_LOCATED_WITH edges). Cow and King cobra are in the
 registry but have no GTF file, so they are skipped, as the loader does.
 

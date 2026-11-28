@@ -167,7 +167,7 @@ The central node. One per gene locus per species.
 | `start`, `end` | Long | Genomic coordinates (1-based) |
 | `strand` | String | +/- |
 | `length` | Long | Genomic span (end - start + 1: GTF coordinates include both ends) |
-| `cds_length` | Long | Coding sequence length (bp) of the canonical transcript (GTF CDS rows exclude the stop codon) |
+| `cds_length` | Long | Coding sequence length (bp) of the canonical transcript, without the stop codon (GTF CDS rows exclude it; for E. coli's GFF3, whose CDS rows include it, the loader takes it off) |
 | `exon_count` | Int | Exon count of the canonical transcript |
 | `utr5_length` | Long | 5′ UTR length of the canonical transcript |
 | `utr3_length` | Long | 3′ UTR length of the canonical transcript |
@@ -187,13 +187,21 @@ Individual mRNA isoform.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `transcript_id` | String (unique) | Ensembl ENST |
+| `transcript_id` | String (unique) | Ensembl ENST; for E. coli the RefSeq protein ID (NP_414543.1) or the RNA's GFF3 ID (rna-b0202) |
 | `gene_id` | String | Parent gene |
 | `type` | String | mRNA / lncRNA / ncRNA |
 | `exon_count` | Int | Exon count for this isoform |
 | `cds_length` | Long | Coding sequence length (bp) of this isoform |
 | `support_level` | Int | Ensembl TSL (1=best) |
 | `is_canonical` | Boolean | True for the one isoform per gene that the gene's values describe |
+
+E. coli's GFF3 has no transcript rows for its protein-coding genes: each CDS
+row names its gene as parent. Each protein (the CDS rows sharing one ID)
+becomes a transcript of type `protein_coding`, with the features Ensembl's GTF
+gives a yeast gene: one exon over the whole CDS, the CDS without its stop
+codon, a start codon and a stop codon. A gene with several proteins (dnaX
+makes tau and, by ribosomal slippage, gamma) has one transcript per protein.
+The tRNA, rRNA and ncRNA rows of the non-coding genes are transcripts too.
 
 #### `:Feature`
 Sub-transcript element — exon, CDS, UTR, start/stop codon.

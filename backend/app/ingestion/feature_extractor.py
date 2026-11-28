@@ -16,6 +16,17 @@ or more of genes in 11 of the 13 tagged species. The gene records the choice
 in canonical_transcript_id and canonical_source, and that transcript is the
 gene's only one with is_canonical true.
 
+E. coli comes from NCBI GFF3, which has no transcript rows for its
+protein-coding genes: their CDS rows name the gene as Parent. Each protein
+(the CDS rows that share one ID) becomes a transcript named by its
+protein_id, with the parts Ensembl's GTF gives a yeast gene: one exon over
+the whole CDS, the CDS rows, a start_codon and a stop_codon. A GFF3 CDS
+includes the stop codon and a GTF CDS does not, so its last 3 bp leave the
+CDS and become the stop_codon feature: cds_length is then 3 bp per amino
+acid in every species. A CDS marked partial=true keeps all of its bases and
+gets no codon features, as its ends may not be codons. The tRNA, rRNA and
+ncRNA rows of the non-coding genes are transcripts with exons of their own.
+
 Connected to:
   - gtf_parser.py: consumes yielded records
   - biomart_parser.py: domain dicts are merged in after extraction
@@ -26,6 +37,8 @@ from typing import Dict, List, Tuple
 from collections import Counter, defaultdict
 import logging
 
+from app.ingestion.gtf_parser import GFF3_RNA_TYPES
+
 logger = logging.getLogger(__name__)
 
 CANONICAL_TAG = "Ensembl_canonical"
@@ -35,12 +48,52 @@ SOURCE_TAGGED = "Ensembl_canonical"          # tagged in the annotation
 SOURCE_LONGEST_CDS = "longest_cds"           # no tag: longest CDS
 SOURCE_LONGEST_TRANSCRIPT = "longest_transcript"  # no tag, no CDS: longest spliced
 
+FEATURE_TYPES = frozenset({"CDS", "exon", "UTR", "five_prime_utr", "three_prime_utr",
+                           "start_codon", "stop_codon"})
+CODON_BP = 3
+
+# (start, end) rows of one CDS, in transcription order
+Segments = List[Tuple[int, int]]
+
 
 def _tags(attrs: Dict) -> List[str]:
     """A record's tag values: a list from Ensembl GTF, or a comma-separated
     string from a GFF3 file."""
     tags = attrs.get("tag", [])
     return tags.split(",") if isinstance(tags, str) else tags
+
+
+def _split_stop_codon(segments: Segments, strand: str) -> Tuple[Segments, Segments]:
+    """Split the last 3 bases, the stop codon, off a CDS. Returns the CDS
+    without them and the stop codon, both as rows in transcription order.
+    A row's 3' end is its end on the plus strand, its start on the minus."""
+    cds, stop = list(segments), []
+    left = CODON_BP
+    while left and cds:
+        start, end = cds.pop()
+        cut = min(left, end - start + 1)
+        if strand == "-":
+            stop.insert(0, (start, start + cut - 1))
+            start += cut
+        else:
+            stop.insert(0, (end - cut + 1, end))
+            end -= cut
+        if start <= end:
+            cds.append((start, end))
+        left -= cut
+    return cds, stop
+
+
+def _start_codon(segments: Segments, strand: str) -> Segments:
+    """The first 3 bases of a CDS, its start codon, as rows."""
+    codon, left = [], CODON_BP
+    for start, end in segments:
+        cut = min(left, end - start + 1)
+        codon.append((end - cut + 1, end) if strand == "-" else (start, start + cut - 1))
+        left -= cut
+        if not left:
+            break
+    return codon
 
 
 def extract_features(
@@ -70,6 +123,42 @@ def extract_features(
     # Track feature rank per transcript+type
     feature_ranks: Dict[str, int] = defaultdict(int)
 
+    # GFF3 CDS rows that hang off their gene, keyed by (gene_id, CDS ID)
+    gene_cds: Dict[Tuple[str, str], List[Dict]] = defaultdict(list)
+
+    def add_feature(transcript_id: str, f_type: str, start: int, end: int) -> None:
+        """Append one feature and add it to its transcript's sums."""
+        # Normalise UTR type
+        normalised_type = f_type
+        if f_type in ("five_prime_utr", "three_prime_utr"):
+            normalised_type = "UTR"
+
+        rank_key = f"{transcript_id}_{normalised_type}"
+        feature_ranks[rank_key] += 1
+        rank = feature_ranks[rank_key]
+        length = end - start + 1   # both ends count, as in gtf_parser.py
+
+        features.append({
+            "feature_id":    f"{transcript_id}_{normalised_type}_{rank}",
+            "transcript_id": transcript_id,
+            "type":          normalised_type,
+            "length":        length,
+            "rank":          rank,
+            "start":         start,
+            "end":           end,
+        })
+
+        # Accumulate transcript-level sums
+        if f_type == "CDS":
+            tx_cds[transcript_id] += length
+        elif f_type in ("UTR", "five_prime_utr"):
+            tx_utr5[transcript_id] += length
+        elif f_type == "three_prime_utr":
+            tx_utr3[transcript_id] += length
+        elif f_type == "exon":
+            tx_exons[transcript_id] += 1
+            tx_spliced[transcript_id] += length
+
     for rec in records:
         attrs = rec["attributes"]
         f_type = rec["feature_type"]
@@ -98,7 +187,7 @@ def extract_features(
                 "canonical_source": None,
             }
 
-        elif f_type == "transcript":
+        elif f_type == "transcript" or f_type in GFF3_RNA_TYPES:
             transcript_id = attrs.get("transcript_id", "").strip()
             gene_id = attrs.get("gene_id", "").strip()
             if not transcript_id or not gene_id:
@@ -107,10 +196,13 @@ def extract_features(
             support_level = None
             if support_raw and support_raw.isdigit():
                 support_level = int(support_raw)
+            # A GFF3 RNA row's type (tRNA, rRNA, ...) is its biotype
+            default_type = "mRNA" if f_type == "transcript" else f_type
             transcripts[transcript_id] = {
                 "transcript_id": transcript_id,
                 "gene_id":       gene_id,
-                "type":          attrs.get("transcript_biotype", attrs.get("transcript_type", "mRNA")),
+                "type":          attrs.get("transcript_biotype",
+                                           attrs.get("transcript_type", default_type)),
                 "exon_count":    0,
                 "cds_length":    0,
                 "support_level": support_level,
@@ -119,45 +211,45 @@ def extract_features(
             if CANONICAL_TAG in _tags(attrs):
                 tagged_canonical.add(transcript_id)
 
-        elif f_type in ("CDS", "exon", "UTR", "five_prime_utr", "three_prime_utr",
-                        "start_codon", "stop_codon"):
+        elif f_type in FEATURE_TYPES:
             transcript_id = attrs.get("transcript_id", "").strip()
-            if not transcript_id:
-                continue
+            if transcript_id:
+                add_feature(transcript_id, f_type, rec["start"], rec["end"])
+            elif f_type == "CDS" and attrs.get("gene_id") and attrs.get("ID"):
+                # GFF3: a bacterial CDS row, its Parent is the gene (below)
+                gene_cds[(attrs["gene_id"], attrs["ID"])].append(rec)
 
-            # Normalise UTR type
-            normalised_type = f_type
-            if f_type == "five_prime_utr":
-                normalised_type = "UTR"
-            elif f_type == "three_prime_utr":
-                normalised_type = "UTR"
-
-            rank_key = f"{transcript_id}_{normalised_type}"
-            feature_ranks[rank_key] += 1
-            rank = feature_ranks[rank_key]
-            feature_id = f"{transcript_id}_{normalised_type}_{rank}"
-            length = rec["length"]
-
-            features.append({
-                "feature_id":    feature_id,
-                "transcript_id": transcript_id,
-                "type":          normalised_type,
-                "length":        length,
-                "rank":          rank,
-                "start":         rec["start"],
-                "end":           rec["end"],
-            })
-
-            # Accumulate transcript-level sums
-            if f_type == "CDS":
-                tx_cds[transcript_id] += length
-            elif f_type in ("UTR", "five_prime_utr"):
-                tx_utr5[transcript_id] += length
-            elif f_type == "three_prime_utr":
-                tx_utr3[transcript_id] += length
-            elif f_type == "exon":
-                tx_exons[transcript_id] += 1
-                tx_spliced[transcript_id] += length
+    # Each protein of a GFF3 gene (its CDS rows: two when ribosomal slippage
+    # joins two reading frames, as in prfB) becomes a transcript. A
+    # pseudogene's CDS rows are left out: pseudogene rows are not loaded.
+    for (gene_id, cds_id), rows in gene_cds.items():
+        if gene_id not in genes:
+            continue
+        attrs = rows[0]["attributes"]
+        strand = rows[0]["strand"]
+        transcript_id = attrs.get("protein_id") or cds_id
+        transcripts[transcript_id] = {
+            "transcript_id": transcript_id,
+            "gene_id":       gene_id,
+            "type":          "protein_coding",
+            "exon_count":    0,
+            "cds_length":    0,
+            "support_level": None,
+            "is_canonical":  False,
+        }
+        segments = sorted(((r["start"], r["end"]) for r in rows),
+                          reverse=(strand == "-"))
+        add_feature(transcript_id, "exon",
+                    min(start for start, _ in segments), max(end for _, end in segments))
+        if attrs.get("partial") == "true":
+            cds, start_codon, stop_codon = segments, [], []
+        else:
+            cds, stop_codon = _split_stop_codon(segments, strand)
+            start_codon = _start_codon(segments, strand)
+        for f_type, parts in (("CDS", cds), ("start_codon", start_codon),
+                              ("stop_codon", stop_codon)):
+            for start, end in parts:
+                add_feature(transcript_id, f_type, start, end)
 
     # Back-fill transcript values and group transcripts by gene
     gene_transcripts: Dict[str, List[str]] = defaultdict(list)

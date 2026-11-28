@@ -1,7 +1,33 @@
 ##gff-version 3
-##sequence-region U00096.3 1 4641652
-U00096.3	RefSeq	gene	190	255	.	+	.	ID=gene-b0001;Dbxref=EcoGene:EG11277,GeneID:944742;Name=thrL;gbkey=Gene;gene=thrL;gene_biotype=protein_coding;locus_tag=b0001
-U00096.3	RefSeq	CDS	190	255	.	+	0	ID=cds-AAC73112.1;Parent=rna-NM_001358952.1;Dbxref=UniProtKB/Swiss-Prot:P0AD86,Pfam:PF01030;Name=AAC73112.1;gbkey=CDS;gene=thrL;product=thr operon leader peptide;protein_id=AAC73112.1
-U00096.3	RefSeq	gene	337	2799	.	+	.	ID=gene-b0002;Dbxref=EcoGene:EG10998,GeneID:945803,UniProtKB/Swiss-Prot:P00561;Name=thrA;gbkey=Gene;gene=thrA;gene_biotype=protein_coding;locus_tag=b0002
-U00096.3	RefSeq	CDS	337	2799	.	+	0	ID=cds-AAC73113.1;Parent=rna-NM_001358953.1;Dbxref=UniProtKB/Swiss-Prot:P00561,Pfam:PF01842,KEGG:eco:b0002;Name=AAC73113.1;gbkey=CDS;gene=thrA;product=fused aspartate kinase/homoserine dehydrogenase;protein_id=AAC73113.1
-U00096.3	RefSeq	gene	2801	3733	.	+	.	ID=gene-b0003;Dbxref=EcoGene:EG10999,GeneID:947498;Name=thrB;gbkey=Gene;gene=thrB;gene_biotype=protein_coding;locus_tag=b0003
+#!gff-spec-version 1.21
+#!processor NCBI annotwriter
+#!genome-build ASM584v2
+#!genome-build-accession NCBI_Assembly:GCF_000005845.2
+##sequence-region NC_000913.3 1 4641652
+##species https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=511145
+NC_000913.3	RefSeq	region	1	4641652	.	+	.	ID=NC_000913.3:1..4641652;Dbxref=taxon:511145;Is_circular=true;Name=ANONYMOUS;gbkey=Src;genome=chromosome;mol_type=genomic DNA;strain=K-12;substrain=MG1655
+NC_000913.3	RefSeq	gene	190	255	.	+	.	ID=gene-b0001;Dbxref=ASAP:ABE-0000006,ECOCYC:EG11277,GeneID:944742;Name=thrL;gbkey=Gene;gene=thrL;gene_biotype=protein_coding;gene_synonym=ECK0001;locus_tag=b0001
+NC_000913.3	RefSeq	CDS	190	255	.	+	0	ID=cds-NP_414542.1;Parent=gene-b0001;Dbxref=UniProtKB/Swiss-Prot:P0AD86,GenBank:NP_414542.1,ASAP:ABE-0000006,ECOCYC:EG11277,GeneID:944742;Name=NP_414542.1;gbkey=CDS;gene=thrL;locus_tag=b0001;product=thr operon leader peptide;protein_id=NP_414542.1;transl_table=11
+NC_000913.3	RefSeq	gene	337	2799	.	+	.	ID=gene-b0002;Dbxref=ASAP:ABE-0000008,ECOCYC:EG10998,GeneID:945803;Name=thrA;gbkey=Gene;gene=thrA;gene_biotype=protein_coding;gene_synonym=ECK0002,Hs,thrA1,thrA2,thrD;locus_tag=b0002
+NC_000913.3	RefSeq	CDS	337	2799	.	+	0	ID=cds-NP_414543.1;Parent=gene-b0002;Dbxref=UniProtKB/Swiss-Prot:P00561,GenBank:NP_414543.1,ASAP:ABE-0000008,ECOCYC:EG10998,GeneID:945803;Name=NP_414543.1;gbkey=CDS;gene=thrA;locus_tag=b0002;product=fused aspartate kinase/homoserine dehydrogenase 1;protein_id=NP_414543.1;transl_table=11
+NC_000913.3	RefSeq	gene	5683	6459	.	-	.	ID=gene-b0006;Dbxref=ASAP:ABE-0000018,ECOCYC:EG10011,GeneID:944749;Name=yaaA;gbkey=Gene;gene=yaaA;gene_biotype=protein_coding;gene_synonym=ECK0006;locus_tag=b0006
+NC_000913.3	RefSeq	CDS	5683	6459	.	-	0	ID=cds-NP_414547.1;Parent=gene-b0006;Dbxref=UniProtKB/Swiss-Prot:P0A8I3,GenBank:NP_414547.1,ASAP:ABE-0000018,ECOCYC:EG10011,GeneID:944749;Name=NP_414547.1;gbkey=CDS;gene=yaaA;locus_tag=b0006;product=DNA binding and peroxide stress response protein YaaA;protein_id=NP_414547.1;transl_table=11
+NC_000913.3	RefSeq	gene	225381	225457	.	+	.	ID=gene-b0202;Dbxref=ASAP:ABE-0000679,ECOCYC:EG30045,GeneID:944884;Name=ileV;gbkey=Gene;gene=ileV;gene_biotype=tRNA;gene_synonym=ECK0202;locus_tag=b0202
+NC_000913.3	RefSeq	tRNA	225381	225457	.	+	.	ID=rna-b0202;Parent=gene-b0202;Dbxref=ASAP:ABE-0000679,ECOCYC:EG30045,GeneID:944884;Note=tRNA-Ile(GAU);gbkey=tRNA;gene=ileV;locus_tag=b0202;product=tRNA-Ile
+NC_000913.3	RefSeq	exon	225381	225457	.	+	.	ID=exon-b0202-1;Parent=rna-b0202;Dbxref=ASAP:ABE-0000679,ECOCYC:EG30045,GeneID:944884;Note=tRNA-Ile(GAU);gbkey=tRNA;gene=ileV;locus_tag=b0202;product=tRNA-Ile
+NC_000913.3	RefSeq	pseudogene	257829	259006	.	+	.	ID=gene-b0240;Dbxref=ASAP:ABE-0000821,ECOCYC:EG11092,GeneID:945077;Name=crl;gbkey=Gene;gene=crl;gene_biotype=pseudogene;gene_synonym=ECK0241;locus_tag=b0240;pseudo=true
+NC_000913.3	RefSeq	CDS	257829	257899	.	+	0	ID=cds-gnl|b0240|CDS251;Parent=gene-b0240;Dbxref=ASAP:ABE-0000821,ECOCYC:EG11092,GeneID:945077;gbkey=CDS;gene=crl;locus_tag=b0240;orig_protein_id=gnl|b0240|CDS251;product=RNA polymerase holoenzyme assembly factor Crl;pseudo=true;transl_table=11
+NC_000913.3	RefSeq	CDS	258676	259006	.	+	1	ID=cds-gnl|b0240|CDS251;Parent=gene-b0240;Dbxref=ASAP:ABE-0000821,ECOCYC:EG11092,GeneID:945077;gbkey=CDS;gene=crl;locus_tag=b0240;orig_protein_id=gnl|b0240|CDS251;product=RNA polymerase holoenzyme assembly factor Crl;pseudo=true;transl_table=11
+NC_000913.3	RefSeq	gene	492092	494023	.	+	.	ID=gene-b0470;Dbxref=ASAP:ABE-0001633,ECOCYC:EG10245,GeneID:945105;Name=dnaX;gbkey=Gene;gene=dnaX;gene_biotype=protein_coding;gene_synonym=dnaZ,ECK0464;locus_tag=b0470
+NC_000913.3	RefSeq	CDS	492092	494023	.	+	0	ID=cds-NP_415003.1;Parent=gene-b0470;Dbxref=GenBank:NP_415003.1,ASAP:ABE-0001633,ECOCYC:EG10245,GeneID:945105;Name=NP_415003.1;gbkey=CDS;gene=dnaX;locus_tag=b0470;product=DNA polymerase III subunit tau;protein_id=NP_415003.1;transl_table=11
+NC_000913.3	RefSeq	CDS	492092	493375	.	+	0	ID=cds-YP_009518751.1;Parent=gene-b0470;Dbxref=UniProtKB/Swiss-Prot:P06710-2,GenBank:YP_009518751.1,ASAP:ABE-0001633,ECOCYC:EG10245,GeneID:945105;Name=YP_009518751.1;exception=ribosomal slippage;gbkey=CDS;gene=dnaX;locus_tag=b0470;product=DNA polymerase III subunit gamma;protein_id=YP_009518751.1;transl_table=11
+NC_000913.3	RefSeq	CDS	493375	493386	.	+	0	ID=cds-YP_009518751.1;Parent=gene-b0470;Dbxref=UniProtKB/Swiss-Prot:P06710-2,GenBank:YP_009518751.1,ASAP:ABE-0001633,ECOCYC:EG10245,GeneID:945105;Name=YP_009518751.1;exception=ribosomal slippage;gbkey=CDS;gene=dnaX;locus_tag=b0470;product=DNA polymerase III subunit gamma;protein_id=YP_009518751.1;transl_table=11
+NC_000913.3	RefSeq	gene	2755593	2755955	.	+	.	ID=gene-b2621;Dbxref=ASAP:ABE-0008624,ECOCYC:EG30100,GeneID:945053;Name=ssrA;gbkey=Gene;gene=ssrA;gene_biotype=other;gene_synonym=ECK2617,sipB;locus_tag=b2621
+NC_000913.3	RefSeq	gene	3035184	3036282	.	-	.	ID=gene-b2891;Dbxref=ASAP:ABE-0009488,ECOCYC:EG10762,GeneID:947369;Name=prfB;gbkey=Gene;gene=prfB;gene_biotype=protein_coding;gene_synonym=ECK2886,supK;locus_tag=b2891
+NC_000913.3	RefSeq	CDS	3036208	3036282	.	-	0	ID=cds-NP_417367.1;Parent=gene-b2891;Dbxref=UniProtKB/Swiss-Prot:P07012,GenBank:NP_417367.1,ASAP:ABE-0009488,ECOCYC:EG10762,GeneID:947369;Name=NP_417367.1;exception=ribosomal slippage;gbkey=CDS;gene=prfB;locus_tag=b2891;product=peptide chain release factor RF2;protein_id=NP_417367.1;transl_table=11
+NC_000913.3	RefSeq	CDS	3035184	3036206	.	-	0	ID=cds-NP_417367.1;Parent=gene-b2891;Dbxref=UniProtKB/Swiss-Prot:P07012,GenBank:NP_417367.1,ASAP:ABE-0009488,ECOCYC:EG10762,GeneID:947369;Name=NP_417367.1;exception=ribosomal slippage;gbkey=CDS;gene=prfB;locus_tag=b2891;product=peptide chain release factor RF2;protein_id=NP_417367.1;transl_table=11
+NC_000913.3	RefSeq	gene	3853118	3853257	.	-	.	ID=gene-b4616;Dbxref=ECOCYC:G0-10201,GeneID:5061525;Name=istR;gbkey=Gene;gene=istR;gene_biotype=ncRNA;gene_synonym=ECK4425,istR-1,istR-2,psrA19;locus_tag=b4616
+NC_000913.3	RefSeq	ncRNA	3853118	3853257	.	-	.	ID=rna-b4616;Parent=gene-b4616;Dbxref=ECOCYC:G0-10201,GeneID:5061525;gbkey=ncRNA;gene=istR;locus_tag=b4616;product=small RNA IstR-2
+NC_000913.3	RefSeq	exon	3853118	3853257	.	-	.	ID=exon-b4616-1;Parent=rna-b4616;Dbxref=ECOCYC:G0-10201,GeneID:5061525;gbkey=ncRNA;gene=istR;locus_tag=b4616;product=small RNA IstR-2
+NC_000913.3	RefSeq	ncRNA	3853118	3853190	.	-	.	ID=rna-b4616-2;Parent=gene-b4616;Dbxref=ECOCYC:G0-10201,GeneID:5061525;gbkey=ncRNA;gene=istR;locus_tag=b4616;product=small regulatory RNA IstR-1
+NC_000913.3	RefSeq	exon	3853118	3853190	.	-	.	ID=exon-b4616-2-1;Parent=rna-b4616-2;Dbxref=ECOCYC:G0-10201,GeneID:5061525;gbkey=ncRNA;gene=istR;locus_tag=b4616;product=small regulatory RNA IstR-1
