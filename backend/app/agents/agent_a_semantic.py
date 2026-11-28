@@ -46,6 +46,15 @@ Relationships:
 ## Valid Gene Properties (with their types)
 {gene_props}
 
+## What the Gene Values Describe
+cds_length, exon_count, utr5_length, utr3_length and utr_cds_ratio describe one
+transcript per gene, its canonical transcript (canonical_transcript_id), not a
+sum over the gene's isoforms. cds_length is in base pairs and excludes the stop
+codon, so a protein of N amino acids has a cds_length of about 3 * N. length is
+the gene's genomic span, introns included. canonical_source says how the
+transcript was chosen: 'Ensembl_canonical' (tagged in the annotation),
+'longest_cds' or 'longest_transcript' (no tag, so the longest one).
+
 ## Taxon IDs Are Strings
 Gene.species_taxon and Species.taxon_id store NCBI taxon IDs as strings, so
 always quote a taxon ID: g.species_taxon = '9606'. Neo4j never treats a string

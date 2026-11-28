@@ -45,6 +45,8 @@ def get_gene(
         cds_length=gene_data.get("cds_length"),
         exon_count=gene_data.get("exon_count"),
         utr_cds_ratio=gene_data.get("utr_cds_ratio"),
+        canonical_transcript_id=gene_data.get("canonical_transcript_id"),
+        canonical_source=gene_data.get("canonical_source"),
         chromosome=str(gene_data.get("chromosome", "")),
         start=gene_data.get("start", 0),
         end=gene_data.get("end", 0),

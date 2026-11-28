@@ -4,6 +4,18 @@ Feature extractor — builds Gene/Transcript/Feature node dicts from parsed GTF 
 Takes the stream of dicts from gtf_parser.py and accumulates them into structured
 Gene, Transcript, and Feature collections for batch writing.
 
+A gene's cds_length, exon_count, utr5_length, utr3_length and utr_cds_ratio
+describe one transcript, the gene's canonical transcript, never a sum over
+its isoforms (a sum counts every shared exon once per isoform: TTN came out
+with 577,563 bp of CDS and 1,700 exons). The canonical transcript is the one
+the annotation tags "Ensembl_canonical". For a gene without that tag (all of
+C. elegans, most of chicken and frog) it is the transcript with the longest
+CDS, then the longest spliced length, then the smallest transcript ID; where
+the annotation does tag one, that rule picks the same transcript for 99.4%
+or more of genes in 11 of the 13 tagged species. The gene records the choice
+in canonical_transcript_id and canonical_source, and that transcript is the
+gene's only one with is_canonical true.
+
 Connected to:
   - gtf_parser.py: consumes yielded records
   - biomart_parser.py: domain dicts are merged in after extraction
@@ -11,10 +23,24 @@ Connected to:
 """
 
 from typing import Dict, List, Tuple
-from collections import defaultdict
+from collections import Counter, defaultdict
 import logging
 
 logger = logging.getLogger(__name__)
+
+CANONICAL_TAG = "Ensembl_canonical"
+
+# canonical_source values: how a gene's canonical transcript was chosen
+SOURCE_TAGGED = "Ensembl_canonical"          # tagged in the annotation
+SOURCE_LONGEST_CDS = "longest_cds"           # no tag: longest CDS
+SOURCE_LONGEST_TRANSCRIPT = "longest_transcript"  # no tag, no CDS: longest spliced
+
+
+def _tags(attrs: Dict) -> List[str]:
+    """A record's tag values: a list from Ensembl GTF, or a comma-separated
+    string from a GFF3 file."""
+    tags = attrs.get("tag", [])
+    return tags.split(",") if isinstance(tags, str) else tags
 
 
 def extract_features(
@@ -33,11 +59,13 @@ def extract_features(
     transcripts: Dict[str, Dict] = {}
     features: List[Dict] = []
 
-    # Accumulators for computed gene properties
-    gene_cds_lengths: Dict[str, int] = defaultdict(int)
-    gene_utr5_lengths: Dict[str, int] = defaultdict(int)
-    gene_utr3_lengths: Dict[str, int] = defaultdict(int)
-    gene_exon_counts: Dict[str, int] = defaultdict(int)
+    # Per-transcript sums, keyed by transcript_id
+    tx_cds: Dict[str, int] = defaultdict(int)
+    tx_utr5: Dict[str, int] = defaultdict(int)
+    tx_utr3: Dict[str, int] = defaultdict(int)
+    tx_exons: Dict[str, int] = defaultdict(int)
+    tx_spliced: Dict[str, int] = defaultdict(int)   # summed exon lengths
+    tagged_canonical = set()
 
     # Track feature rank per transcript+type
     feature_ranks: Dict[str, int] = defaultdict(int)
@@ -50,7 +78,6 @@ def extract_features(
             gene_id = attrs.get("gene_id", "").strip()
             if not gene_id:
                 continue
-            length = rec["end"] - rec["start"]
             genes[gene_id] = {
                 "gene_id":      gene_id,
                 "name":         attrs.get("gene_name", attrs.get("Name", gene_id)),
@@ -59,14 +86,16 @@ def extract_features(
                 "start":        rec["start"],
                 "end":          rec["end"],
                 "strand":       rec["strand"],
-                "length":       length,
+                "length":       rec["length"],
                 "species_taxon": species_taxon,
-                # These will be filled in below
+                # These will be filled in below, from the canonical transcript
                 "cds_length":   0,
                 "exon_count":   0,
                 "utr5_length":  0,
                 "utr3_length":  0,
                 "utr_cds_ratio": None,
+                "canonical_transcript_id": None,
+                "canonical_source": None,
             }
 
         elif f_type == "transcript":
@@ -83,14 +112,16 @@ def extract_features(
                 "gene_id":       gene_id,
                 "type":          attrs.get("transcript_biotype", attrs.get("transcript_type", "mRNA")),
                 "exon_count":    0,
+                "cds_length":    0,
                 "support_level": support_level,
                 "is_canonical":  False,
             }
+            if CANONICAL_TAG in _tags(attrs):
+                tagged_canonical.add(transcript_id)
 
         elif f_type in ("CDS", "exon", "UTR", "five_prime_utr", "three_prime_utr",
                         "start_codon", "stop_codon"):
             transcript_id = attrs.get("transcript_id", "").strip()
-            gene_id = attrs.get("gene_id", "").strip()
             if not transcript_id:
                 continue
 
@@ -105,7 +136,7 @@ def extract_features(
             feature_ranks[rank_key] += 1
             rank = feature_ranks[rank_key]
             feature_id = f"{transcript_id}_{normalised_type}_{rank}"
-            length = rec["end"] - rec["start"]
+            length = rec["length"]
 
             features.append({
                 "feature_id":    feature_id,
@@ -117,38 +148,66 @@ def extract_features(
                 "end":           rec["end"],
             })
 
-            # Accumulate gene-level properties
-            if gene_id:
-                if f_type == "CDS":
-                    gene_cds_lengths[gene_id] += length
-                elif f_type in ("UTR", "five_prime_utr"):
-                    gene_utr5_lengths[gene_id] += length
-                elif f_type == "three_prime_utr":
-                    gene_utr3_lengths[gene_id] += length
-                elif f_type == "exon":
-                    gene_exon_counts[gene_id] += 1
+            # Accumulate transcript-level sums
+            if f_type == "CDS":
+                tx_cds[transcript_id] += length
+            elif f_type in ("UTR", "five_prime_utr"):
+                tx_utr5[transcript_id] += length
+            elif f_type == "three_prime_utr":
+                tx_utr3[transcript_id] += length
+            elif f_type == "exon":
+                tx_exons[transcript_id] += 1
+                tx_spliced[transcript_id] += length
 
-            # Update transcript exon count
-            if f_type == "exon" and transcript_id in transcripts:
-                transcripts[transcript_id]["exon_count"] += 1
+    # Back-fill transcript values and group transcripts by gene
+    gene_transcripts: Dict[str, List[str]] = defaultdict(list)
+    for transcript_id, transcript in transcripts.items():
+        transcript["exon_count"] = tx_exons.get(transcript_id, 0)
+        transcript["cds_length"] = tx_cds.get(transcript_id, 0)
+        gene_transcripts[transcript["gene_id"]].append(transcript_id)
 
-    # Back-fill computed properties onto gene dicts
+    # Back-fill gene values from each gene's canonical transcript. A gene
+    # without transcripts keeps 0 and None.
+    sources: Counter = Counter()
     for gene_id, gene in genes.items():
-        cds = gene_cds_lengths.get(gene_id, 0)
-        utr5 = gene_utr5_lengths.get(gene_id, 0)
-        utr3 = gene_utr3_lengths.get(gene_id, 0)
-        exons = gene_exon_counts.get(gene_id, 0)
+        candidates = gene_transcripts.get(gene_id)
+        if not candidates:
+            continue
+        tagged = [t for t in candidates if t in tagged_canonical]
+        chosen = min(
+            tagged or candidates,
+            key=lambda t: (-tx_cds.get(t, 0), -tx_spliced.get(t, 0), t),
+        )
+        cds = tx_cds.get(chosen, 0)
+        utr5 = tx_utr5.get(chosen, 0)
+        utr3 = tx_utr3.get(chosen, 0)
+        if tagged:
+            source = SOURCE_TAGGED
+        elif cds > 0:
+            source = SOURCE_LONGEST_CDS
+        else:
+            source = SOURCE_LONGEST_TRANSCRIPT
 
+        transcripts[chosen]["is_canonical"] = True
         gene["cds_length"] = cds
+        gene["exon_count"] = tx_exons.get(chosen, 0)
         gene["utr5_length"] = utr5
         gene["utr3_length"] = utr3
-        gene["exon_count"] = exons
-        if cds > 0:
-            gene["utr_cds_ratio"] = round((utr5 + utr3) / cds, 4)
+        gene["utr_cds_ratio"] = round((utr5 + utr3) / cds, 4) if cds > 0 else None
+        gene["canonical_transcript_id"] = chosen
+        gene["canonical_source"] = source
+        sources[source] += 1
 
     logger.info(
         "Extracted %d genes, %d transcripts, %d features for taxon %s",
         len(genes), len(transcripts), len(features), species_taxon,
+    )
+    logger.info(
+        "Canonical transcripts for taxon %s: %d tagged %s, %d longest CDS, "
+        "%d longest transcript, %d genes without transcripts",
+        species_taxon, sources[SOURCE_TAGGED], CANONICAL_TAG,
+        sources[SOURCE_LONGEST_CDS], sources[SOURCE_LONGEST_TRANSCRIPT],
+        len(genes) - sum(sources.values()),
     )
 
     return list(genes.values()), list(transcripts.values()), features

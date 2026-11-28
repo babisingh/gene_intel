@@ -6,9 +6,14 @@ export interface GeneNode {
   species_taxon: string
   species_name: string
   biotype: string
+  // cds_length, exon_count and utr_cds_ratio describe the canonical
+  // transcript; without canonical_source they are sums over all transcripts
+  // (a graph built before it existed). See utils/geneValues.ts.
   cds_length: number | null
   exon_count: number | null
   utr_cds_ratio: number | null
+  canonical_transcript_id?: string | null
+  canonical_source?: 'Ensembl_canonical' | 'longest_cds' | 'longest_transcript' | null
   chromosome: string
   start: number
   end: number
@@ -61,6 +66,7 @@ export interface TranscriptRecord {
   transcript_id: string
   type: string
   exon_count: number
+  cds_length?: number | null
   support_level: number | null
   is_canonical: boolean
 }
