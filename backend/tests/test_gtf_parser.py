@@ -80,6 +80,23 @@ def test_parse_ncbi_col9_extracts_fields():
     assert "Pfam:PF01030" in attrs["db_xref"]
 
 
+def test_parse_ncbi_col9_reads_ids_and_parents_as_gtf_keys():
+    cds = parse_ncbi_col9("ID=cds-NP_414542.1;Parent=gene-b0001;protein_id=NP_414542.1")
+    assert (cds["gene_id"], cds["ID"]) == ("b0001", "cds-NP_414542.1")
+    assert "transcript_id" not in cds
+    rna = parse_ncbi_col9("ID=rna-b0202;Parent=gene-b0202;gbkey=tRNA")
+    assert (rna["transcript_id"], rna["gene_id"]) == ("rna-b0202", "b0202")
+    exon = parse_ncbi_col9("ID=exon-b0202-1;Parent=rna-b0202")
+    assert exon["transcript_id"] == "rna-b0202"
+    assert "gene_id" not in exon
+
+
+def test_gff3_rna_rows_are_kept(sample_ecoli_gff3):
+    types = {r["feature_type"] for r in parse_gtf_streaming(sample_ecoli_gff3, "ncbi_gff3")}
+    assert {"gene", "CDS", "exon", "tRNA", "ncRNA"} <= types
+    assert not types & {"region", "pseudogene"}
+
+
 def test_irrelevant_feature_types_are_skipped(sample_human_gtf):
     records = list(parse_gtf_streaming(sample_human_gtf, "ensembl_gtf"))
     feature_types = {r["feature_type"] for r in records}
